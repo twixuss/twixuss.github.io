@@ -1,11 +1,372 @@
 ﻿<!DOCTYPE html>
 
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
 <head>
     <meta charset="utf-8" />
-    <title>Twixuss's page</title>
+    <title>Twixuss's Page</title>
+    <link rel="stylesheet" href="css.css">
 </head>
+
 <body>
-    Hello
+    <canvas id="canvas"></canvas>
+    <script>
+        
+        const canvas = document.getElementById("canvas");
+        const gl = canvas.getContext('webgl2');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+        
+        // Vertex shader source code
+        const vertexShaderSource = `#version 300 es
+void main() {
+    vec2[6] positions = vec2[6](
+        vec2(-1, -1),
+        vec2(-1,  1),
+        vec2( 1, -1),
+        vec2( 1, -1),
+        vec2(-1,  1),
+        vec2( 1,  1)
+    );
+    gl_Position = vec4(positions[gl_VertexID], 0, 1);
+}
+`;
+
+        // Fragment shader source code
+        const fragmentShaderSource = `#version 300 es
+precision mediump float;
+#define DENSITY 24.
+#define MOVE_SPEED 0.5
+
+#define map(a,b,c,d,e) ((a-b)/(c-b)*(e-d)+d)
+#define mapc(a,b,c,d,e) ((clamp(a,b,c)-b)/(c-b)*(e-d)+d)
+
+uniform float u_time;
+uniform float u_timeOfDay;
+
+float rand1(vec2 p) {
+	vec3 p3  = fract(vec3(p.xyx) * .1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+vec3 rand3(vec2 q) {
+    vec3 p = vec3(q.x, q.y, dot(q.xy, vec2(1.234536, 2.132131)));
+    vec3 a = fract(p * vec3(123.34,234.34,345.65));
+    a+=dot(a, a+34.45);
+    return fract(vec3(a.x*a.y,a.y*a.z,a.x*a.z));
+}
+vec3 rand3(vec3 p) {
+    vec3 a = fract(p * vec3(123.34,234.34,345.65));
+    a+=dot(a, a+34.45);
+    return fract(vec3(a.x*a.y,a.y*a.z,a.x*a.z));
+}
+vec4 rand4(vec3 p) {
+	vec4 p4 = fract(vec4(p.xyzx)  * vec4(.1031, .1030, .0973, .1099));
+    p4 += dot(p4, p4.wzxy+33.33);
+    return fract((p4.xxyz+p4.yzzw)*p4.zywx);
+}
+#define smoothstep3(x) (3.*x*x - 2.*x*x*x)
+vec3 noise3(vec3 p) {
+    vec3 f = floor(p);
+    vec3 t = p - f;
+    t = smoothstep3(t);
+    vec3 _000 = rand3(f + vec3(0, 0, 0));
+    vec3 _001 = rand3(f + vec3(0, 0, 1));
+    vec3 _010 = rand3(f + vec3(0, 1, 0));
+    vec3 _011 = rand3(f + vec3(0, 1, 1));
+    vec3 _100 = rand3(f + vec3(1, 0, 0));
+    vec3 _101 = rand3(f + vec3(1, 0, 1));
+    vec3 _110 = rand3(f + vec3(1, 1, 0));
+    vec3 _111 = rand3(f + vec3(1, 1, 1));
+    return mix(
+        mix(
+            mix(_000, _100, t.x),
+            mix(_010, _110, t.x),
+            t.y),
+        mix(
+            mix(_001, _101, t.x),
+            mix(_011, _111, t.x),
+            t.y),
+        t.z);
+}
+
+float smin(float a, float b, float k) {
+    float h = clamp((b-a)/k+0.5,0.0,1.0);
+    return b+h*(a-b+k*0.5*(h-1.0));
+}
+
+vec3 hsv2rgb(vec3 c){
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+struct Voronoi {
+    float d;
+    float sd;
+    float e;
+    float se;
+    vec2 id;
+};
+
+Voronoi voronoi(vec2 p, float smoothness, float baseOffsetScale, float time) {
+    vec2 t = floor(p);
+    vec2 l = p - t;
+    
+    Voronoi r;
+    r.d = 100.;
+    r.sd = 100.;
+    r.e = 100.;
+    r.se = 100.;
+    
+    // when baseOffsetScale>0, LIMIT of 1 is not enough sometimes.
+    // AFAICT 2 is enough
+    const int LIMIT = 1;
+    
+    mat3 rmat = mat3(0.7500000, -0.4330127,  0.5000000,
+   0.6495190,  0.6250000, -0.4330127,
+  -0.1250000,  0.6495190,  0.7500000);
+
+    float s = sqrt(2.);
+    rmat = mat3(
+        s,0,s,
+        0,1,0,
+        -s,0,s);
+
+    vec2 cc;
+    vec2 tcc;
+    float ed = 100.;
+
+    for(int x = -LIMIT;x<=LIMIT;++x)
+    for(int y = -LIMIT;y<=LIMIT;++y){
+        vec2 o = vec2(x,y);
+        vec3 n = noise3(rmat * vec3(t+o, time));
+        vec2 h = n.xy;
+        //h = normalize(h-0.5)+0.5;
+        float d = distance(l, h+o) + n.z * baseOffsetScale;
+        if (r.d > d) {
+            r.d = d;   
+        }
+        if (ed > distance(l, h+o)) {
+            ed = distance(l, h+o);
+            cc = o;
+            tcc = o + h - p;
+            r.id = t+o;
+        }
+        r.sd = smin(r.sd, d, smoothness);
+    }
+    
+    for(int x = -LIMIT;x<=LIMIT;++x)
+    for(int y = -LIMIT;y<=LIMIT;++y){
+        vec2 o = vec2(x,y);
+        vec2 h = noise3(rmat * vec3(t+o, time)).xy;
+        vec2 m = abs(cc - o);
+        if (m.x + m.y >= 1.0) {
+            vec2 tc =           o + h - l + t + tcc;
+            vec2 cd = normalize(o + h - l - t - tcc);
+            float e = dot(tc, cd) * 0.5;
+            r.e = min(r.e, e);
+            r.se = smin(r.se, e, 0.5);
+        }
+    }
+      
+    // Not sure if this is right but it looks consistent enough
+    float MAX_D = sqrt(2.) + baseOffsetScale;
+    
+    r.d /= MAX_D;
+    r.sd /= MAX_D;
+    
+    return r;
+}
+out vec4 fragColor;
+void main() {
+    float speed = 0.25;
+    Voronoi v = voronoi(vec2(gl_FragCoord.xy / 64.), 1., 1., u_time * speed);
+    float c;
+    c = pow(v.d - v.sd + 0.5, 2.0) * 0.5 + 0.1;
+    c = mapc(v.sd / v.d, 0.75, 1.0, 0.2, 0.3);
+    c = mapc(v.sd - v.d, -1.0, 2.0, 0.0, 1.0);
+    c = v.d + v.e;
+    c = v.e * (rand1(v.id) * 0.5 + 0.5);
+    c = 1.-c;
+    c = map(c, 0.0, 1.0, 0.1, 0.3);
+    fragColor = vec4(vec3(c) * hsv2rgb(vec3(u_timeOfDay, 0.25, 1.0)), 1.);
+}
+`;
+
+        // Function to create a shader
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                return shader;
+            }
+            console.error(gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+        }
+
+        // Function to create a program
+        function createProgram(gl, vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            return program;
+        }
+
+        // Create shaders and program
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+        const program = createProgram(gl, vertexShader, fragmentShader);
+
+        // // Define the positions of the vertices
+        // const positions = new Float32Array([
+        //     -1, -1,
+        //      1, -1,
+        //     -1,  1,
+        //      1,  1,
+        // ]);
+
+        // // Create a buffer and put the positions in it
+        // const positionBuffer = gl.createBuffer();
+        // gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        // gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+        // // Get the attribute location, enable it
+        // const positionLocation = gl.getAttribLocation(program, 'a_position');
+        // gl.enableVertexAttribArray(positionLocation);
+
+        // // Bind the position buffer
+        // gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        // gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+        let startTime = Date.now() / 1000.0;
+        let timeSinceStart = 0.0;
+
+        function getTimeOfDay() {
+            let d = new Date();
+            return d.getHours() / 24.0 + d.getMinutes() / (24.0 * 60.0) + d.getSeconds() / (24.0 * 60.0 * 60.0);
+        }
+
+        function draw() {
+            let timeOfDay = getTimeOfDay();
+
+            // Clear the canvas and draw
+            gl.useProgram(program);
+            gl.uniform1f(gl.getUniformLocation(program, "u_time"), timeSinceStart)
+            gl.uniform1f(gl.getUniformLocation(program, "u_timeOfDay"), timeOfDay)
+            gl.viewport(0, 0, window.innerWidth, window.innerHeight);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 6);
+
+            let currentTime = Date.now() / 1000.0;
+            timeSinceStart = currentTime - startTime;
+
+            window.requestAnimationFrame(draw);
+        }
+
+        window.requestAnimationFrame(draw);
+    </script>
+    <table class="headertable" cellspacing="0">
+        <tr class="panel">
+            <td style="text-align: left; vertical-align: middle; padding-left: 16px;">
+                <img src="./icons/twixuss.png" width="64px">
+            </td>
+            <td>
+                <h1 class="alignmiddle">Projects</h1>
+            </td>
+            <td style="text-align: right; vertical-align: middle; padding-right: 16px; word-spacing: 8px;">
+                <a href="https://github.com/twixuss" target="_blank"><img src="./icons/github-mark-white.svg" width="32px" /></a>
+                <a href="https://twixuss.bsky.social" target="_blank"><img src="./icons/bluesky-icon.blue.svg" width="32px" /></a>
+                <!-- https://github.com/OzzyCzech/bluesky-logo -->
+            </td>
+        </tr>
+    </table>
+    <table class="maintable" cellspacing="8">
+        <tr>
+            <td class="panel">
+                <h1 class="alignmiddle"><a href="https://github.com/twixuss/tl" target="_blank">TL</a></h1>
+                <p>
+                My "standard" library for C++. A collection of widely used data structures, algorithms and various utilities.
+                </p>
+                <pre style="overflow: auto; font-family:monospace;color: rgb(201, 209, 217); font-weight: 400; "><span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/main.h&gt;</span></span>
+<span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/console.h&gt;</span></span>
+<span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/string.h&gt;</span></span>
+<span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/cpu.h&gt;</span></span>
+<span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/file.h&gt;</span></span>
+<span style="color: rgb(255, 123, 114); font-weight: 400;">using</span> <span style="color: rgb(255, 123, 114); font-weight: 400;">namespace</span> tl;
+
+<span style="color: rgb(201, 209, 217); font-weight: 400;">s32 <span style="color: rgb(210, 168, 255); font-weight: 400;">tl_main</span><span style="color: rgb(201, 209, 217); font-weight: 400;">(Span&lt;Span&lt;utf8&gt;&gt; args)</span> </span>{
+    <span style="color: rgb(255, 166, 87); font-weight: 400;">print</span>(<span style="color: rgb(165, 214, 255); font-weight: 400;">"Hello, "</span>);
+    defer { <span style="color: rgb(255, 166, 87); font-weight: 400;">println</span>(<span style="color: rgb(165, 214, 255); font-weight: 400;">"World!"</span>); };
+
+    <span style="color: rgb(255, 123, 114); font-weight: 400;">auto</span> str = <span style="color: rgb(255, 166, 87); font-weight: 400;">with</span>(temporary_allocator, <span style="color: rgb(255, 166, 87); font-weight: 400;">to_string</span>(<span style="color: rgb(121, 192, 255); font-weight: 400;">42</span>));
+
+    <span style="color: rgb(255, 123, 114); font-weight: 400;">float</span> t = <span style="color: rgb(121, 192, 255); font-weight: 400;">150</span>;
+    v3f color = <span style="color: rgb(255, 166, 87); font-weight: 400;">map</span>(t, <span style="color: rgb(121, 192, 255); font-weight: 400;">100</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">200</span>, v3f{<span style="color: rgb(121, 192, 255); font-weight: 400;">1</span>,<span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>,<span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>}, v3f{<span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>,<span style="color: rgb(121, 192, 255); font-weight: 400;">1</span>,<span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>});
+
+    <span style="color: rgb(255, 166, 87); font-weight: 400;">println</span>(<span style="color: rgb(165, 214, 255); font-weight: 400;">"This is {} core CPU"</span>, <span style="color: rgb(255, 166, 87); font-weight: 400;">get_cpu_info</span>().logical_processor_count);
+    
+    for_each(<span style="color: rgb(255, 166, 87); font-weight: 400;">get_items_in_directory</span>(<span style="color: rgb(165, 214, 255); font-weight: 400;">"."</span>), [&amp;] (<span style="color: rgb(255, 123, 114); font-weight: 400;">auto</span> item) {
+        <span style="color: rgb(255, 123, 114); font-weight: 400;">if</span> (item.kind == FileItem_directory) {
+            <span style="color: rgb(255, 123, 114); font-weight: 400;">return</span> ForEach_break;
+        }
+        <span style="color: rgb(255, 166, 87); font-weight: 400;">println</span>(item.name);
+        <span style="color: rgb(255, 123, 114); font-weight: 400;">return</span> ForEach_continue;
+    });
+
+    <span style="color: rgb(255, 123, 114); font-weight: 400;">return</span> <span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>;
+}</pre>
+            </td>
+            <td class="panel">
+                <h1 class="alignmiddle">Dunger</h1>
+                <p>A 2d horde slayer shooter with raytracing and magic</p>
+                <video controls preload="none" poster="./dunger/video.preview.png"><source src="./dunger/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
+            </td>
+            <td class="panel">
+                <h1 class="alignmiddle">Roadgen</h1>
+                <p>Car physics playground</p>
+                <video controls preload="none" poster="./roadgen/video.preview.png"><source src="./roadgen/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
+            </td>
+        </tr>
+        <tr>
+            <td class="panel">
+                <h1 class="alignmiddle">Drawt</h1>
+                <p>Simple application for drawing and drafting</p>
+                <video controls preload="none" poster="./drawt/video.preview.png"><source src="./drawt/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
+            </td>
+            <td class="panel">
+                <h1 class="alignmiddle">Soundest</h1>
+                <p>Simple audio player</p>
+                <img src="./soundest/image.png" width="100%">
+            </td>
+            <td class="panel">
+                <h1 class="alignmiddle"><a href="https://github.com/twixuss/simplex" target="_blank">Simplex</a></h1>
+                <p>Programming Language</p>
+                <code>
+<pre style="overflow: auto;" style="font-family:monospace;color: rgb(201, 209, 217); background-color: rgb(13, 17, 23); font-weight: 400; ">import <span style="color: rgb(165, 214, 255); font-weight: 400;">"base"</span>
+<span style="color: rgb(255, 123, 114); font-weight: 400;">const</span> main = <span style="color: rgb(210, 168, 255); font-weight: 400;">fn</span> () =&gt; {
+    <span style="color: rgb(210, 168, 255); font-weight: 400;">println</span>(<span style="color: rgb(165, 214, 255); font-weight: 400;">"Hello world!"</span>)
+    
+    <span style="color: rgb(255, 123, 114); font-weight: 400;">const</span> square = <span style="color: rgb(210, 168, 255); font-weight: 400;">fn</span> (scalar: S64) =&gt; scalar * scalar
+
+    var array = .[<span style="color: rgb(121, 192, 255); font-weight: 400;">1</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">2</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">3</span>] + .[<span style="color: rgb(121, 192, 255); font-weight: 400;">4</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">5</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">6</span>]
+    var squared = <span style="color: rgb(210, 168, 255); font-weight: 400;">square</span>(array)
+}</pre>
+                </code>
+            </td>
+        </tr>
+    </table>
+    <table class="headertable" cellspacing="0">
+        <tr>
+            <td class="alignmiddle panel headertable" style="padding: 16px">
+                <a href="https://highlight.hohli.com" target="_blank">Code Highlighting: highlight.hohli.com</a>
+            </td>
+        </tr>
+    </table>
 </body>
+
 </html>
