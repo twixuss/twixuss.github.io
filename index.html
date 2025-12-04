@@ -12,6 +12,9 @@
     <canvas id="canvas"></canvas>
     <script>
         (() => {
+
+            return;
+
             function hasTouchSupport() {
                 return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
             }
@@ -204,7 +207,6 @@ void main() {
 }
 `;
 
-            // Function to create a shader
             function createShader(gl, type, source) {
                 const shader = gl.createShader(type);
                 gl.shaderSource(shader, source);
@@ -216,7 +218,6 @@ void main() {
                 gl.deleteShader(shader);
             }
 
-            // Function to create a program
             function createProgram(gl, vertexShader, fragmentShader) {
                 const program = gl.createProgram();
                 gl.attachShader(program, vertexShader);
@@ -225,31 +226,9 @@ void main() {
                 return program;
             }
 
-            // Create shaders and program
             const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
             const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
             const program = createProgram(gl, vertexShader, fragmentShader);
-
-            // // Define the positions of the vertices
-            // const positions = new Float32Array([
-            //     -1, -1,
-            //      1, -1,
-            //     -1,  1,
-            //      1,  1,
-            // ]);
-
-            // // Create a buffer and put the positions in it
-            // const positionBuffer = gl.createBuffer();
-            // gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-            // gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-
-            // // Get the attribute location, enable it
-            // const positionLocation = gl.getAttribLocation(program, 'a_position');
-            // gl.enableVertexAttribArray(positionLocation);
-
-            // // Bind the position buffer
-            // gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-            // gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
 
             let startTime = Date.now() / 1000.0;
             let timeSinceStart = 0.0;
@@ -278,8 +257,8 @@ void main() {
             window.requestAnimationFrame(draw);
         })();
     </script>
-    <table class="headertable" cellspacing="0">
-        <tr class="panel">
+    <table class="headertable panel" cellspacing="0">
+        <tr>
             <td style="text-align: left; vertical-align: middle; padding-left: 16px;">
                 <img src="./icons/twixuss.png" width="64px">
             </td>
@@ -287,20 +266,20 @@ void main() {
                 <h1 class="alignmiddle">Projects</h1>
             </td>
             <td style="text-align: right; vertical-align: middle; padding-right: 16px; word-spacing: 8px;">
-                <a href="https://github.com/twixuss" target="_blank"><img src="./icons/github-mark-white.svg" width="32px" /></a>
-                <a href="https://twixuss.bsky.social" target="_blank"><img src="./icons/bluesky-icon.blue.svg" width="32px" /></a>
+                <a href="https://github.com/twixuss" target="_blank"><img src="./icons/github-mark-white.svg" height="32px" /></a>
+                <a href="https://www.shadertoy.com/user/twixuss" target="_blank"><img src="./icons/shadertoy.png" height="32px" /></a>
+                <!-- <a href="https://twixuss.bsky.social" target="_blank"><img src="./icons/bluesky-icon.blue.svg" height="32px" /></a> -->
                 <!-- https://github.com/OzzyCzech/bluesky-logo -->
             </td>
         </tr>
     </table>
-    <table class="maintable" cellspacing="8">
-        <tr>
-            <td class="panel">
-                <h1 class="alignmiddle"><a href="https://github.com/twixuss/tl" target="_blank">TL</a></h1>
-                <p>
-                My "standard" library for C++. A collection of widely used data structures, algorithms and various utilities.
-                </p>
-                <pre style="overflow: auto; font-family:monospace;color: rgb(201, 209, 217); font-weight: 400; "><span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/main.h&gt;</span></span>
+    <div class="grid-container" cellspacing="8">
+        <div class="grid-item panel">
+            <h1 class="alignmiddle"><a href="https://github.com/twixuss/tl" target="_blank">TL</a></h1>
+            <p>
+            My standard library for C++. A collection of widely used data structures, algorithms and various utilities.
+            </p>
+            <pre style="overflow: auto; font-family:monospace;color: rgb(201, 209, 217); font-weight: 400; "><span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/main.h&gt;</span></span>
 <span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/console.h&gt;</span></span>
 <span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/string.h&gt;</span></span>
 <span style="color: rgb(121, 192, 255); font-weight: 400;">#<span style="color: rgb(255, 123, 114); font-weight: 400;">include</span> <span style="color: rgb(165, 214, 255); font-weight: 400;">&lt;tl/cpu.h&gt;</span></span>
@@ -317,7 +296,7 @@ void main() {
     v3f color = <span style="color: rgb(255, 166, 87); font-weight: 400;">map</span>(t, <span style="color: rgb(121, 192, 255); font-weight: 400;">100</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">200</span>, v3f{<span style="color: rgb(121, 192, 255); font-weight: 400;">1</span>,<span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>,<span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>}, v3f{<span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>,<span style="color: rgb(121, 192, 255); font-weight: 400;">1</span>,<span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>});
 
     <span style="color: rgb(255, 166, 87); font-weight: 400;">println</span>(<span style="color: rgb(165, 214, 255); font-weight: 400;">"This is {} core CPU"</span>, <span style="color: rgb(255, 166, 87); font-weight: 400;">get_cpu_info</span>().logical_processor_count);
-    
+
     for_each(<span style="color: rgb(255, 166, 87); font-weight: 400;">get_items_in_directory</span>(<span style="color: rgb(165, 214, 255); font-weight: 400;">"."</span>), [&amp;] (<span style="color: rgb(255, 123, 114); font-weight: 400;">auto</span> item) {
         <span style="color: rgb(255, 123, 114); font-weight: 400;">if</span> (item.kind == FileItem_directory) {
             <span style="color: rgb(255, 123, 114); font-weight: 400;">return</span> ForEach_break;
@@ -328,46 +307,66 @@ void main() {
 
     <span style="color: rgb(255, 123, 114); font-weight: 400;">return</span> <span style="color: rgb(121, 192, 255); font-weight: 400;">0</span>;
 }</pre>
-            </td>
-            <td class="panel">
-                <h1 class="alignmiddle">Dunger</h1>
-                <p>A 2d horde slayer shooter with raytracing and magic</p>
-                <video controls preload="none" poster="./dunger/video.preview.png"><source src="./dunger/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
-            </td>
-            <td class="panel">
-                <h1 class="alignmiddle">Roadgen</h1>
-                <p>Car physics playground</p>
-                <video controls preload="none" poster="./roadgen/video.preview.png"><source src="./roadgen/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
-            </td>
-        </tr>
-        <tr>
-            <td class="panel">
-                <h1 class="alignmiddle">Drawt</h1>
-                <p>Simple application for drawing and drafting</p>
-                <video controls preload="none" poster="./drawt/video.preview.png"><source src="./drawt/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
-            </td>
-            <td class="panel">
-                <h1 class="alignmiddle">Soundest</h1>
-                <p>Simple audio player</p>
-                <img src="./soundest/image.png" width="100%">
-            </td>
-            <td class="panel">
-                <h1 class="alignmiddle"><a href="https://github.com/twixuss/simplex" target="_blank">Simplex</a></h1>
-                <p>Programming Language</p>
-                <code>
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle">SDF World</h1>
+            <p>
+                A dynamic 3d terrain system with instant editing, material transitions, smooth level of detail,
+                fast procedural generation and small storage footprint.
+            </p>
+            <video controls preload="none" poster="./sdfw/video.preview.png"><source src="./sdfw/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle">Dunger</h1>
+            <p>A 2d horde slayer shooter with raytracing and magic</p>
+            <video controls preload="none" poster="./dunger/video.preview.png"><source src="./dunger/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle">Roadgen</h1>
+            <p>Car physics playground (Unity)</p>
+            <video controls preload="none" poster="./roadgen/video.preview.png"><source src="./roadgen/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle">Drawt</h1>
+            <p>Simple application for drawing and drafting</p>
+            <video controls preload="none" poster="./drawt/video.preview.png"><source src="./drawt/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle">Soundest</h1>
+            <p>Simple audio player</p>
+            <img src="./soundest/image.png" width="100%">
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle"><a href="https://github.com/twixuss/simplex" target="_blank">Simplex</a></h1>
+            <p>Programming Language</p>
+            <code>
 <pre style="overflow: auto;" style="font-family:monospace;color: rgb(201, 209, 217); background-color: rgb(13, 17, 23); font-weight: 400; ">import <span style="color: rgb(165, 214, 255); font-weight: 400;">"base"</span>
 <span style="color: rgb(255, 123, 114); font-weight: 400;">const</span> main = <span style="color: rgb(210, 168, 255); font-weight: 400;">fn</span> () =&gt; {
     <span style="color: rgb(210, 168, 255); font-weight: 400;">println</span>(<span style="color: rgb(165, 214, 255); font-weight: 400;">"Hello world!"</span>)
-    
+
     <span style="color: rgb(255, 123, 114); font-weight: 400;">const</span> square = <span style="color: rgb(210, 168, 255); font-weight: 400;">fn</span> (scalar: S64) =&gt; scalar * scalar
 
     var array = .[<span style="color: rgb(121, 192, 255); font-weight: 400;">1</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">2</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">3</span>] + .[<span style="color: rgb(121, 192, 255); font-weight: 400;">4</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">5</span>, <span style="color: rgb(121, 192, 255); font-weight: 400;">6</span>]
     var squared = <span style="color: rgb(210, 168, 255); font-weight: 400;">square</span>(array)
 }</pre>
-                </code>
-            </td>
-        </tr>
-    </table>
+            </code>
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle">Unity Rigidbody Character Controller</h1>
+            <p>Simple solution for first person movement in Unity.</p>
+            <video controls preload="none" poster="./rbfpcc/video.preview.png"><source src="./rbfpcc/video.mp4" type="video/mp4">Your browser does not support the video tag.</video>
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle"><a href="https://github.com/twixuss/t3d">T3D</a></h1>
+            <p>A 3D game engine with entity component system written in C++</p>
+            <img src="./t3d/preview.png" width="100%">
+        </div>
+        <div class="grid-item panel">
+            <h1 class="alignmiddle"><a href="https://github.com/twixuss/nonlinear-shadows">Non-linear Shadow mapping</a></h1>
+            <p>An alternative to cascaded shadow mapping. Achieves shadows with high texel density close to the camera, while having a large render distance. Uses a single shadow rendering pass.</p>
+            <img src="./nlsm/preview.png" width="100%">
+        </div>
+    </div>
     <table class="headertable" cellspacing="0">
         <tr>
             <td class="alignmiddle panel headertable" style="padding: 16px">
