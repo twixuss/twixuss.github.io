@@ -16,6 +16,7 @@ Type an equation like <code>x*x</code> or <code>x=sin(y)</code> to see it graphe
 If you use both x and y (or vec2 variable named p), the output will show a gradient, which increases in color intensity when the function increases.
 Or you can equate two expressions, like <code>sin(x) = sin(y)</code>. Then the gradients will not be shown, only roots of the equation.
 You can assign an output of a graph to a name by prepending <code>name = </code>, like <code>a = x*x</code>. You can use that name in next graphs.
+Until there is a better way, you can get a derivative of a graph <code>f(x)</code> by doing <code>ddx(f(x))/ddx(x)</code>.
 
 <h3>Sliders</h3>
 Type <code>name = number</code> where <code>name</code> is any valid GLSL identifier and <code>number</code> is any integer/float literal.
@@ -26,7 +27,7 @@ Type <code>name = number</code> where <code>name</code> is any valid GLSL identi
 <code>iTime</code> - Seconds elapsed since the start
 
 <h3>Functions</h3>
-Supports both GLSL and HLSL function names.
+Both GLSL and HLSL function names are available.
 <code>map(x,a,b,c,d)</code> - maps x from range [a; b] to range [c; d]
 <code>mapc(x,a,b,c,d)</code> - additionally clamps x
 <code>smin(a,b,k)</code> - smooth minimum
@@ -39,6 +40,7 @@ Supports both GLSL and HLSL function names.
 <code>pi</code> <code>tau</code> <code>phi</code>
 
 <h3>TODO</h3>
+* Graph parameters, e.g. <code>f(x,a,b) = x*a + b</code>
 * Dependency ordering. Allow upper graphs reference lower ones
 * Show point on graph closest to mouse?
 * Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs.
@@ -250,7 +252,6 @@ Supports both GLSL and HLSL function names.
         padding-left: 4px;
         padding-right: 4px;
         border: 1px solid #8888;
-        border-radius: 4px;
     }
 </style>
 <script>
@@ -564,26 +565,27 @@ Supports both GLSL and HLSL function names.
     let needToRecompile = true;
 
     function parseConstant(str) {
-        return +str;
+        return parseFloat(str);
     }
     function updateInput(input) {
         input.showFract = true;
         input.isNamedByUser = false;
         if (input.text.value.trim() == "") {
             input.type = 'none';
+            input.name = "";
+            input.expr = "";
+            input.slider.value = 0;
+            input.min.value = input.slider.min = -10;
+            input.max.value = input.slider.max = +10;
         } else if (input.text.value.includes("=")) {
             let [name, value] = input.text.value.split("=").map(s => s.trim());
             let constant = parseConstant(value);
-            if (constant) {
+            if (!isNaN(constant)) {
                 input.type = 'slider';
                 input.name = name;
-                let min = Math.min(input.min.value, constant);
-                let max = Math.max(input.max.value, constant);
-                input.min.value = min;
-                input.max.value = max;
                 input.slider.value = constant;
-                input.slider.min = min;
-                input.slider.max = max;
+                input.min.value = input.slider.min = Math.min(input.min.value, constant);
+                input.max.value = input.slider.max = Math.max(input.max.value, constant);
             } else {
                 input.type = 'graph';
                 let nameTokens = tokenize(name);
@@ -791,6 +793,10 @@ Supports both GLSL and HLSL function names.
                         input.dependsOnX ||= found.dependsOnX;
                         input.dependsOnY ||= found.dependsOnY;
                     }
+                }
+
+                if (!input.dependsOnX && !input.dependsOnY) {
+                    input.dependsOnX = true;
                 }
             }
         }
