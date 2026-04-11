@@ -1,0 +1,1150 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>SIMD Visualizations</title>
+    <style>
+        body {
+            background: #202020;
+            margin: 0.5rem;
+        }
+        * {
+            color: #FFF;
+            font-family: "Arial";
+            //border: 1px solid #f00;
+            //box-sizing: border-box;
+        }
+        pre {
+            font-family: "Noto Sans Mono", monospace;
+        }
+        .item-header {
+            display: flex;
+            gap: 1rem;
+            width: 100%;
+        }
+        .intr {
+            font-family: "Noto Sans Mono", monospace;
+            font-size: 18px;
+            margin-bottom: 18px;
+            flex: 1;
+        }
+        .mnem {
+            font-family: "Noto Sans Mono", monospace;
+            font-size: 18px;
+            margin-bottom: 18px;
+            color: #888;
+            flex: 1;
+            text-align: right;
+        }
+        .grid-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .section {
+        }
+        .card1, .card2 {
+            border: 1px solid #303030;
+            box-sizing: border-box;
+            padding: 0.5rem;
+            //box-shadow:
+            //    4px 4px 16px #000,
+            //    inset 0px 0px 32px #ffffff08;
+        }
+        .card1 {
+            margin-bottom: 0.5rem;
+            background-color: #101010;
+        }
+        .card2 {
+            background-color: #181818;
+        }
+        .headerContainer {
+            position: relative;
+        }
+        .headerBack {
+            position: absolute;
+            right: 0%;
+            top: 0%;
+            margin-left: 16px;
+            color: #888;
+            text-align: right;
+        }
+        .header {
+            margin-top: 8px;
+            margin-bottom: 16px;
+            margin-left: 16px;
+            font-size: 32px;
+            font-weight: bold;
+        }
+        .grid-item {
+            flex: 1;
+        }
+        .groups {
+            gap: 0;
+            padding: 0;
+            margin: 0;
+            position: relative;
+        }
+        .group1, .group2,  .group3,  .group4,
+                 .group2o, .group3o, .group4o, .label {
+            margin: 0;
+        }
+        .group2,  .group3,  .group4,
+        .group2o, .group3o, .group4o, .label {
+            position: absolute;
+            top: 0;
+            width: 100%;
+        }
+        .group1, .group1c {
+            color: #8cf;
+        }
+        .group2, .group2o, .group2c {
+            color: #cf8;
+        }
+        .group3, .group3o, .group3c {
+            color: #f8c;
+        }
+        .group4, .group4o, .group4c {
+            color: #aaa;
+        }
+        .group2o {
+            left: +1px;
+        }
+        .group3o {
+            left: +2px;
+        }
+        .group4o {
+            left: +3px;
+        }
+        .label {
+            text-shadow: 
+                +1px +1px 2px #000,
+                +1px -1px 2px #000,
+                -1px +1px 2px #000,
+                -1px -1px 2px #000
+            ;
+            z-index: 999;
+        }
+        .note {
+            color: #888;
+        }
+        a {
+            text-decoration: none;
+        }
+        .divider {
+            background: #282828;
+            margin-top: 8px;
+            margin-bottom: 8px;
+            margin-left: 0px;
+            margin-right: 0px;
+            height: 1px;
+        }
+    </style>
+    <script>
+        window.onload = () => {
+            const intrinsics = [
+{name: "_mm_move_ss", mnem: "movss", section: "SSE", category: "Swizzle", groups: [`\
+0 1 2 3          
+  │ │ │
+  1 2 3
+`, `\
+          a b c d
+╭─────────╯
+a
+`]},
+{name: "_mm_movelh_ps", mnem: "movlhps", section: "SSE", category: "Swizzle", groups: [`\
+0 1 2 3          
+│ │
+│ │
+0 1
+`, `\
+          a b c d
+    ╭─────╯ │
+    │ ╭─────╯
+    a b`]},
+{name: "_mm_movehl_ps", mnem: "movhlps", section: "SSE", category: "Swizzle", groups: [`\
+0 1 2 3          
+    │ │
+    │ │
+    2 3
+`, `\
+          a b c d
+╭─────────────╯ │
+│ ╭─────────────╯
+c d`]},
+{name: "_mm_unpacklo_ps", mnem: "unpcklps", section: "SSE", category: "Swizzle", groups: [`\
+0 1 2 3          
+│ ╰─╮
+│   │
+│   │
+0   1
+`, `\
+          a b c d
+          │ │
+  ╭───────╯ │
+  │   ╭─────╯
+  a   b
+`]},
+{name: "_mm_unpackhi_ps", mnem: "unpckhps", section: "SSE", category: "Swizzle", groups: [`\
+0 1 2 3          
+╭───╯ │
+│   ╭─╯
+│   │
+│   │
+2   3
+`, `\
+          a b c d
+              │ │
+              │ │
+  ╭───────────╯ │
+  │   ╭─────────╯
+  c   d
+`]},
+{name: "_mm_shuffle_ps", mnem: "shufps", section: "SSE", category: "Swizzle", groups: [`\
+0 1 2 3          
+╰─┴┬┴─╯
+╭─┬╯
+0 0
+1 1
+2 2
+3 3
+`, `\
+          a b c d
+          ╰─┴┬┴─╯
+    ╭─┬──────╯
+    a a
+    b b
+    c c
+    d d
+`]},
+{name: "_MM_TRANSPOSE4_PS", mnem: "(Sequence)", section: "SSE", category: "Swizzle", useOffset: true, groups: [`\
+0 1 2 3
+│ │ │ ╰───────────────────────╮
+│ │ ╰───────────────╮         │
+│ ╰───────╮         │         │
+│         │         │         │
+│         │         │         │
+│         │         │         │
+│         │         │         │
+│         │         │         │
+│         │         │         │
+0         1         2         3      
+`, `\
+          4 5 6 7
+          │ │ │ │
+          │ │ │ │
+          │ │ │ ╰───────────────╮
+  ╭───────╯ │ ╰───────╮         │
+  │         │         │         │
+  │         │         │         │
+  │         │         │         │
+  │         │         │         │
+  │         │         │         │
+  4         5         6         7
+`, `\
+                    8 9 a b
+                    │ │ │ │
+                    │ │ │ │
+                    │ │ │ │
+                    │ │ │ │
+    ╭───────────────╯ │ │ │
+    │         ╭───────╯ │ ╰───────╮
+    │         │         │         │
+    │         │         │         │
+    │         │         │         │
+    8         9         a         b
+`, `\
+                              c d e f
+                              │ │ │ │
+                              │ │ │ │
+                              │ │ │ │
+                              │ │ │ │
+                              │ │ │ │
+                              │ │ │ │
+      ╭───────────────────────╯ │ │ │
+      │         ╭───────────────╯ │ │
+      │         │         ╭───────╯ │
+      c         d         e         f
+`], note: "Alternative visualization:", noteGroups: [`\
+0 1 2 3     0      
+         →  1      
+            2      
+            3      
+`, `\
+              4    
+4 5 6 7       5    
+              6    
+              7    
+`, `\
+                8  
+                9  
+8 9 a b         a  
+                b  
+`, `\
+                  c
+                  d
+                  e
+c d e f           f
+`]},
+        {name: "_mm_shuffle_epi32", mnem: "pshufd", section: "SSE2", category: "Swizzle", groups: [`\
+0 1 2 3
+╰─┴┬┴─╯
+╭─┬┴┬─╮
+0 0 0 0
+1 1 1 1
+2 2 2 2
+3 3 3 3
+`]},
+{name: "_mm_shuffle_pd", mnem: "shufpd", section: "SSE2", category: "Swizzle", groups: [`\
+0 1
+╰┬╯
+╭╯
+0
+1
+`, `\
+      a b
+      ╰┬╯
+  ╭────╯
+  a
+  b
+`]},
+{name: "_mm_shufflehi_epi16", mnem: "pshufhw", section: "SSE2", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7
+│ │ │ │ ╰─┴┬┴─╯
+│ │ │ │ ╭─┬┴┬─╮
+0 1 2 3 4 4 4 4
+        5 5 5 5
+        6 6 6 6
+        7 7 7 7
+`]},
+{name: "_mm_shufflelo_epi16", mnem: "pshuflw", section: "SSE2", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7
+╰─┴┬┴─╯ │ │ │ │
+╭─┬┴┬─╮ │ │ │ │
+0 0 0 0 4 5 6 7
+1 1 1 1
+2 2 2 2
+3 3 3 3
+`]},
+{name: "_mm_unpacklo_epi8", mnem: "punpcklbw", section: "SSE2", category: "Swizzle", groups: [`\
+ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15                                                 
+ │  │  │  │  │  │  │  ╰────────────────────╮
+ │  │  │  │  │  │  ╰─────────────────╮     │
+ │  │  │  │  │  ╰──────────────╮     │     │
+ │  │  │  │  ╰───────────╮     │     │     │
+ │  │  │  ╰────────╮     │     │     │     │
+ │  │  ╰─────╮     │     │     │     │     │
+ │  ╰──╮     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ 0     1     2     3     4     5     6     7
+`, `\
+                                                  a  b  c  d  e  f  g  h  i  j  k  l  m  n  o  p
+                                                  │  │  │  │  │  │  │  │
+                                                  │  │  │  │  │  │  │  │
+                                                  │  │  │  │  │  │  │  │
+                                                  │  │  │  │  │  │  │  │
+                                                  │  │  │  │  │  │  │  │
+                                                  │  │  │  │  │  │  │  │
+                                                  │  │  │  │  │  │  │  │
+    ╭─────────────────────────────────────────────╯  │  │  │  │  │  │  │
+    │     ╭──────────────────────────────────────────╯  │  │  │  │  │  │
+    │     │     ╭───────────────────────────────────────╯  │  │  │  │  │
+    │     │     │     ╭────────────────────────────────────╯  │  │  │  │
+    │     │     │     │     ╭─────────────────────────────────╯  │  │  │
+    │     │     │     │     │     ╭──────────────────────────────╯  │  │
+    │     │     │     │     │     │     ╭───────────────────────────╯  │
+    │     │     │     │     │     │     │     ╭────────────────────────╯
+    a     b     c     d     e     f     g     h
+`]},
+{name: "_mm_unpackhi_epi8", mnem: "punpckhbw", section: "SSE2", category: "Swizzle", groups: [`\
+ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15                                                 
+ ╭───────────────────────╯  │  │  │  │  │  │  │
+ │     ╭────────────────────╯  │  │  │  │  │  │
+ │     │     ╭─────────────────╯  │  │  │  │  │
+ │     │     │     ╭──────────────╯  │  │  │  │
+ │     │     │     │     ╭───────────╯  │  │  │
+ │     │     │     │     │     ╭────────╯  │  │
+ │     │     │     │     │     │     ╭─────╯  │
+ │     │     │     │     │     │     │     ╭──╯
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ │     │     │     │     │     │     │     │
+ 8     9    10    11    12    13    14    15
+`, `\
+                                                  a  b  c  d  e  f  g  h  i  j  k  l  m  n  o  p
+                                                                          │  │  │  │  │  │  │  │
+                                                                          │  │  │  │  │  │  │  │
+                                                                          │  │  │  │  │  │  │  │
+                                                                          │  │  │  │  │  │  │  │
+                                                                          │  │  │  │  │  │  │  │
+                                                                          │  │  │  │  │  │  │  │
+                                                                          │  │  │  │  │  │  │  │
+                                                                          │  │  │  │  │  │  │  │
+    ╭─────────────────────────────────────────────────────────────────────╯  │  │  │  │  │  │  │
+    │     ╭──────────────────────────────────────────────────────────────────╯  │  │  │  │  │  │
+    │     │     ╭───────────────────────────────────────────────────────────────╯  │  │  │  │  │
+    │     │     │     ╭────────────────────────────────────────────────────────────╯  │  │  │  │
+    │     │     │     │     ╭─────────────────────────────────────────────────────────╯  │  │  │
+    │     │     │     │     │     ╭──────────────────────────────────────────────────────╯  │  │
+    │     │     │     │     │     │     ╭───────────────────────────────────────────────────╯  │
+    │     │     │     │     │     │     │     ╭────────────────────────────────────────────────╯
+    i     j     k     l     m     n     o     p
+`]},
+{name: "_mm_unpacklo_epi16", mnem: "punpcklwd", section: "SSE2", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7                  
+│ │ │ ╰─────╮
+│ │ ╰───╮   │
+│ ╰─╮   │   │
+│   │   │   │
+│   │   │   │
+│   │   │   │
+│   │   │   │
+│   │   │   │
+0   1   2   3
+`, `\
+                  a b c d e f g h
+                  │ │ │ │
+                  │ │ │ │
+                  │ │ │ │
+                  │ │ │ │
+  ╭───────────────╯ │ │ │
+  │   ╭─────────────╯ │ │
+  │   │   ╭───────────╯ │
+  │   │   │   ╭─────────╯
+  a   b   c   d
+`]},
+{name: "_mm_unpackhi_epi16", mnem: "punpckhwd", section: "SSE2", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7                  
+╭───────╯ │ │ │
+│   ╭─────╯ │ │
+│   │   ╭───╯ │
+│   │   │   ╭─╯
+│   │   │   │
+│   │   │   │
+│   │   │   │
+│   │   │   │
+4   5   6   7
+`, `\
+                  a b c d e f g h
+                          │ │ │ │
+                          │ │ │ │
+                          │ │ │ │
+                          │ │ │ │
+  ╭───────────────────────╯ │ │ │
+  │   ╭─────────────────────╯ │ │
+  │   │   ╭───────────────────╯ │
+  │   │   │   ╭─────────────────╯
+  e   f   g   h
+`]},
+{name: "_mm_unpacklo_epi32", mnem: "punpckldq", section: "SSE2", category: "Swizzle", groups: [`\
+0 1 2 3          
+│ ╰─╮
+│   │
+│   │
+0   1
+`, `\
+          a b c d
+          │ │
+  ╭───────╯ │
+  │   ╭─────╯
+  a   b
+`]},
+{name: "_mm_unpackhi_epi32", mnem: "punpckhdq", section: "SSE2", category: "Swizzle", groups: [`\
+0 1 2 3          
+╭───╯ │
+│   ╭─╯
+│   │
+│   │
+2   3
+`, `\
+          a b c d
+              │ │
+              │ │
+  ╭───────────╯ │
+  │   ╭─────────╯
+  c   d
+`]},
+{name: "_mm_unpacklo_epi64", mnem: "punpcklqdq", section: "SSE2", category: "Swizzle", groups: [`\
+0 1      
+│
+0
+`, `\
+      a b
+  ╭───╯
+  a
+`]},
+{name: "_mm_unpackhi_epi64", mnem: "punpckhqdq", section: "SSE2", category: "Swizzle", groups: [`\
+0 1      
+╭─╯
+│
+1
+`, `\
+      a b
+        │
+  ╭─────╯
+  b
+`]},
+{name: "_mm_unpacklo_pd", mnem: "unpcklpd", section: "SSE2", category: "Swizzle", groups: [`\
+0 1      
+│
+0
+`, `\
+      a b
+  ╭───╯
+  a
+`]},
+{name: "_mm_unpackhi_pd", mnem: "unpckhpd", section: "SSE2", category: "Swizzle", groups: [`\
+0 1      
+╭─╯
+│
+1
+`, `\
+      a b
+        │
+  ╭─────╯
+  b
+`]},
+/* {name: "_mm_sad_epu8", mnem: "psadbw", section: "SSE2", category: "Math", groups: [`\
+unsigned 8-bit ints
+0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15                                                 
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │     │  │  │  │  │  │  │  │
+│  │  │  │  │  │        │  │  │  │  │  │  │  │
+│  │  │  │  │           │  │  │  │  │  │  │  │
+│  │  │  │              │  │  │  │  │  │  │  │
+│  │  │                 │  │  │  │  │  │  │  │
+│  │                    │  │  │  │  │  │  │  │
+│                       │  │  │  │  │  │  │  │
+                        │  │  │  │  │  │  │  │
+                        │  │  │  │  │  │  │   
+                        │  │  │  │  │  │      
+                        │  │  │  │  │         
+                        │  │  │  │            
+                        │  │  │               
+                        │  │                  
+                        │                     
+
+
+
+
+
+
+`, `\
+                                                 unsigned 8-bit ints
+                                                 a  b  c  d  e  f  g  h  i  j  k  l  m  n  o  p
+                                                 │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+                      ╶──────────────────────────┼──┼──┼──┼──┼──┼──┼──╯  │  │  │  │  │  │  │  │
+                   ╶─────────────────────────────┼──┼──┼──┼──┼──┼──╯     │  │  │  │  │  │  │  │
+                ╶────────────────────────────────┼──┼──┼──┼──┼──╯        │  │  │  │  │  │  │  │
+             ╶───────────────────────────────────┼──┼──┼──┼──╯           │  │  │  │  │  │  │  │
+          ╶──────────────────────────────────────┼──┼──┼──╯              │  │  │  │  │  │  │  │
+       ╶─────────────────────────────────────────┼──┼──╯                 │  │  │  │  │  │  │  │
+    ╶────────────────────────────────────────────┼──╯                    │  │  │  │  │  │  │  │
+ ╶───────────────────────────────────────────────╯                       │  │  │  │  │  │  │  │
+                                              ╶──────────────────────────┼──┼──┼──┼──┼──┼──┼──╯
+                                           ╶─────────────────────────────┼──┼──┼──┼──┼──┼──╯
+                                        ╶────────────────────────────────┼──┼──┼──┼──┼──╯
+                                     ╶───────────────────────────────────┼──┼──┼──┼──╯
+                                  ╶──────────────────────────────────────┼──┼──┼──╯
+                               ╶─────────────────────────────────────────┼──┼──╯
+                            ╶────────────────────────────────────────────┼──╯
+                         ╶───────────────────────────────────────────────╯
+
+
+
+
+
+
+`, `\
+
+
+
+                     F
+                  F  │
+               F  │  │
+            F  │  │  │
+         F  │  │  │  │
+      F  │  │  │  │  │
+   F  │  │  │  │  │  │
+F  │  │  │  │  │  │  │
+╰──┴──┴──┴┬─┴──┴──┴──╯                       F
+          + (16 bit)                      F  │
+╭─────────╯                            F  │  │
+│                                   F  │  │  │
+│                                F  │  │  │  │
+│                             F  │  │  │  │  │
+│                          F  │  │  │  │  │  │
+│                       F  │  │  │  │  │  │  │
+│                       ╰──┴──┴──┴┬─┴──┴──┴──╯
+│                                 + (16 bit)
+│                       ╭─────────╯
+R     Z     Z     Z     R     Z     Z     Z
+unsigned 16-bit ints
+`], note: "F: abs(X - Y); Output of F is in range [0; 255]<br>R: Result<br>Z: Zero<br>The other half is computed similarly"}, */
+{name: "_mm_sad_epu8", mnem: "psadbw", section: "SSE2", category: "Math", groups: [`\
+0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15   unsigned 8-bit ints
+
+
+
+
+
+
+`, `\
+
+
+a  b  c  d  e  f  g  h  i  j  k  l  m  n  o  p   unsigned 8-bit ints
+`, `\
+
+@  @  @  @  @  @  @  @  @  @  @  @  @  @  @  @
+
+╰──┴──┴──┴┬─┴──┴──┴──╯  ╰──┴──┴──┴┬─┴──┴──┴──╯
+          + (16 bit)              + (16 bit)
+╭─────────╯             ╭─────────╯
+R     Z     Z     Z     R     Z     Z     Z      unsigned 16-bit ints
+`], note: "@: abs(X - Y); Output of F is in range [0; 255]<br>R: Result<br>Z: Zero<br>The other half is computed similarly"},
+{name: "_mm_moveldup_ps", mnem: "movsldup", section: "SSE3", category: "Swizzle", groups: [`\
+0 1 2 3
+│   │  
+├─╮ ├─╮
+0 0 2 2
+`]},
+{name: "_mm_movehdup_ps", mnem: "movshdup", section: "SSE3", category: "Swizzle", groups: [`\
+0 1 2 3
+  │   │
+╭─┤ ╭─┤
+1 1 3 3
+`]},
+{name: "_mm_addsub_ps", mnem: "addsubps", section: "SSE3", category: "Math", groups: [`\
+0 1 2 3
+ 
+
+
+
+`, `\
+
+
+a b c d
+        
+`, `\
+
+
+
+
+x y z w
+`, `\
+
+- + - +
+
+= = = =
+`]},
+{name: "_mm_hadd_ps", mnem: "haddps", section: "SSE3", category: "Math", groups: [`\
+0 1 2 3
+╰ ╯ ╰ ╯
+
+
+
+
+`, `\
+          a b c d
+          ╰ ╯ ╰ ╯
+`, `\
+        
+ +   +     +   +
+╭╯╭──╯     │   │
+│ │ ╭──────╯   │
+│ │ │ ╭────────╯
+x y z w
+`]},
+        {name: "_mm_shuffle_epi8", mnem: "pshufb", section: "SSSE3", category: "Swizzle", groups: [`\
+ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+ ╰──┴──┴──┴──┴──┴──┴──┴┬─┴──┴──┴──┴──┴──┴──┴──╯
+ ╭──┬──┬──┬──┬──┬──┬──┬┴─┬──┬──┬──┬──┬──┬──┬──╮
+ 0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0 
+ :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :
+15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15
+`]},
+{name: "_mm_blendv_epi8", mnem: "pblendvb", section: "SSE4.1", category: "Swizzle", useOffset: true, groups: [`\
+0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15                                                  
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+
+`, `\
+                                                  a  b  c  d  e  f  g  h  i  j  k  l  m  n  o  p
+╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  ╭─────────────────────────────────────────────────╯
+
+a  b  c  d  e  f  g  h  i  j  k  l  m  n  o  p
+`]},
+{name: "_mm_blend_epi16", mnem: "pblendw", section: "SSE4.1", category: "Swizzle", useOffset: true, groups: [`\
+0 1 2 3 4 5 6 7                  
+│ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │
+0 1 2 3 4 5 6 7
+
+`, `\
+                  a b c d e f g h
+╭─────────────────╯ │ │ │ │ │ │ │
+│ ╭─────────────────╯ │ │ │ │ │ │
+│ │ ╭─────────────────╯ │ │ │ │ │
+│ │ │ ╭─────────────────╯ │ │ │ │
+│ │ │ │ ╭─────────────────╯ │ │ │
+│ │ │ │ │ ╭─────────────────╯ │ │
+│ │ │ │ │ │ ╭─────────────────╯ │
+│ │ │ │ │ │ │ ╭─────────────────╯
+
+a b c d e f g h
+`]},
+{name: "_mm_blend_ps", mnem: "blendps", section: "SSE4.1", category: "Swizzle", useOffset: true, groups: [`\
+0 1 2 3          
+│ │ │ │
+│ │ │ │
+│ │ │ │
+│ │ │ │
+0 1 2 3
+
+`, `\
+          a b c d
+╭─────────╯ │ │ │
+│ ╭─────────╯ │ │
+│ │ ╭─────────╯ │
+│ │ │ ╭─────────╯
+
+a b c d
+`]},
+{name: "_mm_blend_pd", mnem: "blendpd", section: "SSE4.1", category: "Swizzle", useOffset: true, groups: [`\
+0 1      
+│ │
+│ │
+0 1
+
+`, `\
+      a b
+╭─────╯ │
+│ ╭─────╯
+
+a b
+`]},
+{name: "_mm256_unpacklo_ps", mnem: "vunpcklps", section: "AVX", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7                  
+│ ╰─╮   │ ╰─╮
+│   │   │   │
+│   │   │   │
+│   │   │   │
+│   │   │   │
+0   1   4   5
+`, `\
+                  a b c d e f g h
+                  │ │     │ │
+  ╭───────────────╯ │     │ │
+  │   ╭─────────────╯     │ │
+  │   │   ╭───────────────╯ │
+  │   │   │   ╭─────────────╯
+  a   b   e   f
+`]},
+{name: "_mm256_unpackhi_ps", mnem: "vunpckhps", section: "AVX", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7                  
+╭───╯ │ ╭───╯ │
+│   ╭─╯ │   ╭─╯
+│   │   │   │
+│   │   │   │
+│   │   │   │
+│   │   │   │
+2   3   6   7
+`, `\
+                  a b c d e f g h
+                      │ │     │ │
+                      │ │     │ │
+  ╭───────────────────╯ │     │ │
+  │   ╭─────────────────╯     │ │
+  │   │   ╭───────────────────╯ │
+  │   │   │   ╭─────────────────╯
+  c   d   g   h
+`]},
+{name: "_mm256_unpacklo_pd", mnem: "vunpcklpd", section: "AVX", category: "Swizzle", groups: [`\
+0 1 2 3          
+│   │
+│   │
+│   │
+0   2
+`, `\
+          a b c d
+          │   │
+  ╭───────╯   │
+  │   ╭───────╯
+  a   c
+`]},
+{name: "_mm256_unpackhi_pd", mnem: "vunpckhpd", section: "AVX", category: "Swizzle", groups: [`\
+0 1 2 3          
+╭─╯ ╭─╯
+│   │
+│   │
+1   3
+`, `\
+          a b c d
+            │   │
+  ╭─────────╯   │
+  │   ╭─────────╯
+  b   d
+`]},
+{name: "_mm256_shuffle_ps", mnem: "vshufps", section: "AVX", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7                  
+╰─┴┬┴─╯ ╰─┴┬┴─╯
+   │       │
+   │       │
+╭─┬╯    ╭─┬╯
+0 0     4 4
+1 1     5 5
+2 2     6 6
+3 3     7 7
+`, `\
+                  a b c d e f g h
+                  ╰─┴┬┴─╯ ╰─┴┬┴─╯
+                     │       │
+    ╭─┬──────────────╯       │
+    │ │     ╭─┬──────────────╯
+    a a     e e
+    b b     f f
+    c c     g g
+    d d     h h
+`], label: `\
+
+
+   ---------
+                  ┆
+                  ┆
+`, note: " * Not all combinations are possible, since both lower and upper halves are swizzled using the same control byte.", noteGroups: []},
+{name: "_mm256_permute_ps", mnem: "vpermilps", section: "AVX", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7
+╰─┴┬┴─╯ ╰─┴┬┴─╯
+   │       │
+╭─┬┴┬─╮ ╭─┬┴┬─╮
+0 0 0 0 4 4 4 4
+1 1 1 1 5 5 5 5
+2 2 2 2 6 6 6 6
+3 3 3 3 7 7 7 7
+`], label: `\
+
+
+   ---------
+`, note: " * Not all combinations are possible, since both lower and upper halves are swizzled using the same control byte.", noteGroups: []},
+{name: "_mm256_permutevar8x32_ps", mnem: "vpermps", section: "AVX2", category: "Swizzle", groups: [`\
+0 1 2 3 4 5 6 7
+╰─┴─┴─┴┬┴─┴─┴─╯
+╭─┬─┬─┬┴┬─┬─┬─╮
+0 0 0 0 0 0 0 0
+: : : : : : : :
+7 7 7 7 7 7 7 7
+`]},
+            ];
+
+            const sections = {};
+            const categories = {};
+
+            for (intrinsic of intrinsics) {
+                sections[intrinsic.section] = {};
+                categories[intrinsic.category] = {};
+            }
+
+            function rebuildPage() {
+                console.log("Rebuilding the page...");
+
+                pageContainer.innerHTML = "";
+
+                for (sectionName in sections) {
+                    const section = sections[sectionName];
+        
+                    const sectionDiv = document.createElement('div');
+                    sectionDiv.className = "section card1";
+                    section.div = sectionDiv;
+        
+                        const headerContainer = document.createElement('div');
+                        headerContainer.className = "headerContainer";
+                        sectionDiv.appendChild(headerContainer);
+        
+                            const header = document.createElement('div');
+                            header.id = sectionName;
+                            header.className = "header";
+                            header.textContent = sectionName;
+                            headerContainer.appendChild(header);
+        
+                            const a = document.createElement('a');
+                            a.href = "#top";
+                            a.className = "headerBack";
+                            a.textContent = "back";
+                            headerContainer.appendChild(a);
+
+                        const gridContainer = document.createElement('div');
+                        section.gridContainer = gridContainer;
+                        gridContainer.className = "grid-container";
+                        sectionDiv.appendChild(gridContainer);
+
+                }
+
+                for (intrinsic of intrinsics) {
+                    const section = sections[intrinsic.section];
+                    const category = categories[intrinsic.category];
+        
+                    if (!section.checkbox.checked)
+                        continue;
+
+                    if (!category.checkbox.checked)
+                        continue;
+
+                    const gridContainer = section.gridContainer;
+        
+                    const gridItem = document.createElement('div');
+                    gridItem.className = "grid-item card2";
+                    gridContainer.appendChild(gridItem);
+
+                        const itemHeader = document.createElement('div');
+                        itemHeader.className = "item-header";
+                        gridItem.appendChild(itemHeader);
+
+                            const intrinsicElem = document.createElement('div');
+                            intrinsicElem.className = "intr";
+                            intrinsicElem.textContent = intrinsic.name;
+                            itemHeader.appendChild(intrinsicElem);
+
+                            const mnemonic = document.createElement('div');
+                            mnemonic.className = "mnem";
+                            mnemonic.textContent = intrinsic.mnem;
+                            itemHeader.appendChild(mnemonic);
+
+                        const groups = document.createElement('div');
+                        groups.className = "groups";
+                        gridItem.appendChild(groups);
+
+                            for (let i = 0; i < intrinsic.groups.length; ++i) {
+                                const group = document.createElement('pre');
+                                group.className = "group" + (i + 1);
+                                if (intrinsic.useOffset && i) {
+                                    group.className += "o";
+                                }
+                                group.textContent = intrinsic.groups[i];
+                                groups.appendChild(group);
+                            }
+                            if (intrinsic.label) {
+                                const label = document.createElement('pre');
+                                label.className = "label";
+                                label.textContent = intrinsic.label;
+                                groups.appendChild(label);
+                            }
+
+                        if (intrinsic.note) {
+                            const divider = document.createElement('div');
+                            divider.className = "divider";
+                            gridItem.appendChild(divider);
+
+                            const note = document.createElement('div');
+                            note.className = "note";
+                            note.innerHTML = intrinsic.note;
+                            gridItem.appendChild(note);
+
+                            if (intrinsic.noteGroups) {
+                                const noteGroups = document.createElement('div');
+                                noteGroups.className = "groups";
+                                gridItem.appendChild(noteGroups);
+
+                                    for (let i = 0; i < intrinsic.noteGroups.length; ++i) {
+                                        const group = document.createElement('pre');
+                                        group.className = "group" + (i + 1);
+                                        group.textContent = intrinsic.noteGroups[i];
+                                        noteGroups.appendChild(group);
+                                    }
+                            }
+                        }
+                }
+
+                for (sectionName in sections) {
+                    const section = sections[sectionName];
+                    if (section.gridContainer.hasChildNodes()) {
+                        pageContainer.appendChild(section.div);
+                    }
+                }
+            }
+            
+            {
+                {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = "checkbox";
+                    checkbox.id = "checkboxAllSections";
+                    checkbox.checked = true;
+                    instructionSetsDiv.appendChild(checkbox);
+                    checkbox.addEventListener('change', (event) => {
+                        for (sectionName in sections) {
+                            const section = sections[sectionName];
+                            section.checkbox.checked = event.currentTarget.checked;
+                        }
+                        rebuildPage();
+                    });
+        
+                    const label = document.createElement('label');
+                    label.htmlFor = checkbox.id;
+                    label.style = "user-select: none;";
+                    label.textContent = "All";
+                    instructionSetsDiv.appendChild(label);
+                }
+
+                const list = document.createElement('div');
+                instructionSetsDiv.appendChild(list);
+
+                    for (sectionName in sections) {
+                        const section = sections[sectionName];
+        
+                        const item = document.createElement('div');
+                        list.appendChild(item);
+        
+                            const checkbox = document.createElement('input');
+                            checkbox.type = "checkbox";
+                            checkbox.id = "checkbox" + sectionName;
+                            checkbox.checked = true;
+                            item.appendChild(checkbox);
+                            section.checkbox = checkbox;
+                            checkbox.addEventListener('change', (event) => {
+                                rebuildPage();
+                            });
+        
+                            const label = document.createElement('label');
+                            label.htmlFor = checkbox.id;
+                            label.style = "user-select: none;";
+                            label.textContent = sectionName;
+                            item.appendChild(label);
+
+                            const a = document.createElement('a');
+                            a.href = "#" + sectionName;
+                            a.style = "margin-left: 16px; color: #888";
+                            a.textContent = "jump";
+                            item.appendChild(a);
+                    }
+            }
+            
+            {
+                {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = "checkbox";
+                    checkbox.id = "checkboxAllCategories";
+                    checkbox.checked = true;
+                    categoriesDiv.appendChild(checkbox);
+                    checkbox.addEventListener('change', (event) => {
+                        for (categoryName in categories) {
+                            const category = categories[categoryName];
+                            category.checkbox.checked = event.currentTarget.checked;
+                        }
+                        rebuildPage();
+                    });
+        
+                    const label = document.createElement('label');
+                    label.htmlFor = checkbox.id;
+                    label.style = "user-select: none;";
+                    label.textContent = "All";
+                    categoriesDiv.appendChild(label);
+                }
+
+                const list = document.createElement('div');
+                categoriesDiv.appendChild(list);
+
+                    for (categoryName in categories) {
+                        const category = categories[categoryName];
+
+                        const item = document.createElement('div');
+                        list.appendChild(item);
+
+                            const checkbox = document.createElement('input');
+                            checkbox.type = "checkbox";
+                            checkbox.id = "checkbox" + categoryName;
+                            checkbox.checked = true;
+                            item.appendChild(checkbox);
+                            category.checkbox = checkbox;
+                            checkbox.addEventListener('change', (event) => {
+                                rebuildPage();
+                            });
+
+                            const label = document.createElement('label');
+                            label.htmlFor = checkbox.id;
+                            label.style = "user-select: none;";
+                            label.textContent = categoryName;
+                            item.appendChild(label);
+                    }
+            }
+         
+            rebuildPage();
+        }
+    </script>
+</head>
+<body>
+    <div style="display: flex; gap: 0.5rem">
+        <div class="card1" style="flex: 1;">
+            <div class="header">Intro</div>
+            <p>
+            Array elements are shown in memory order, so 0 1 2 3, instead of intel's 3 2 1 0
+            </p><p>
+            One or more inputs are at the top, the output(s) - at the bottom.
+            </p><p>
+            Different inputs are spaced out and have different colors.
+            </p><p>
+            If destination value connects to multiple inputs - single input is selected based on value of an immediate / register.<br>
+            Possible variants for a single value will be stacked vertically.
+            </p><p>
+            Dots are used to abbreviate long continuous ranges / repeating info.
+            </p><p>
+            If lanes are connected with a dashed white line - they are shuffled using the same control value.
+            </p>
+        </div>
+        <div class="card1" style="flex: 1;">
+            <div class="header">Instruction sets</div>
+            <div id="instructionSetsDiv"></div>
+            </div>
+        <div class="card1" style="flex: 1;">
+            <div class="header">Categories</div>
+            <div id="categoriesDiv"></div>
+        </div>
+    </div>
+    <div id="pageContainer"></div>
+    </body>
+</html>
