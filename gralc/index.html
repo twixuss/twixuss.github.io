@@ -1,0 +1,1415 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Graphing calculator</title>
+</head>
+<body>
+    <div id="container">
+        <div id="leftPanel">
+        </div>
+        <div id="divider"></div>
+        <div id="rightPanel" style="display: flex; overflow: hidden; flex: 1; position: relative;">
+            <canvas id="canvas" hidden="true"></canvas>
+            <div id="helpPanel" hidden="true">
+<h3>Graphs</h3>
+Type an equation like <code>x*x</code> or <code>x=sin(y)</code> to see it graphed on a corresponding axis.
+If you use both x and y (or vec2 variable named p), the output will show a gradient, which increases in color intensity when the function increases.
+Or you can equate two expressions, like <code>sin(x) = sin(y)</code>. Then the gradients will not be shown, only roots of the equation.
+You can assign an output of a graph to a name by prepending <code>name = </code>, like <code>a = x*x</code>. You can use that name in next graphs.
+
+<h3>Sliders</h3>
+Type <code>name = number</code> where <code>name</code> is any valid GLSL identifier and <code>number</code> is any integer/float literal.
+
+<h3>Uniforms</h3>
+<code>iCamera.xy</code> - Camera position: center of view in graph coordinates
+<code>iCamera.z</code> - Zoom level. Viewport height spans <code>pow(2, iCamera.z)</code> graph units.
+<code>iTime</code> - Seconds elapsed since the start
+
+<h3>Functions</h3>
+Supports both GLSL and HLSL function names.
+<code>map(x,a,b,c,d)</code> - maps x from range [a; b] to range [c; d]
+<code>mapc(x,a,b,c,d)</code> - additionally clamps x
+<code>smin(a,b,k)</code> - smooth minimum
+<code>smax(a,b,k)</code> - smooth maximum
+<code>clamp01(x)</code>
+<code>sfloor(x, k)</code> - smooth floor (without discontinuities)
+<code>sfrac[t](x, k)</code> - smooth fraction (without discontinuities)
+
+<h3>Constants</h3>
+<code>pi</code> <code>tau</code> <code>phi</code>
+
+<h3>TODO</h3>
+* Dependency ordering. Allow upper graphs reference lower ones
+* Show point on graph closest to mouse?
+* Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs.
+* Should be able to update a graph while the other ones fail to compile? One shader per graph? Harder to reference though.
+* Per-axis zooming. Want to squish tall graphs to see them better.
+            </div>
+            <div id="exportPopup" style="display: none;">
+                <span id="popupText" style="flex: 1;"></span>
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: column; height: 100%;">
+            <button class="rightButton" id="darkThemeButton">Dark</button>
+            <button class="rightButton" id="lightThemeButton">Light</button>
+            <div style="flex-grow: 1;"></div>
+            <button class="rightButton" id="resetCameraButton">To 0,0</button>
+            <button class="rightButton" id="exportButton">Export</button>
+            <button class="rightButton" id="helpButton">?</button>
+            <div style="flex-grow: 1;"></div>
+            <button class="rightButton" id="resetStateButton">Reset</button>
+        </div>
+    </div>
+    <div id="colorPicker"></div>
+</body>
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        background-color: #333;
+        color: #fff;
+        font-family: Arial;
+        font-size: 16px;
+    }
+    body {
+        height: 100dvh;
+        overflow: hidden;
+    }
+    #container {
+        display: flex;
+        height: 100%;
+        width: 100%;
+    }
+    #leftPanel, #rightPanel {
+        flex: 1;
+        padding: 2px;
+        height: 100%;
+        overflow: auto;
+    }
+
+    #divider {
+        width: 10px;
+        height: 100%;
+        background-color: #222;
+        cursor: col-resize;
+        user-select: none;
+    }
+
+    .line {
+        width: 100%;
+        display: flex;
+        position: relative;
+        gap: 2px;
+    }
+    .line > * {
+        flex: 1;
+    }
+    .showPicker {
+        min-width: 32px;
+        max-width: 32px;
+        min-height: 32px;
+        max-height: 32px;
+        border: 1px solid #0008;
+    }
+    input[type="text"] {
+        background-color: #222;
+        height: 32px;
+        padding-left: 8px;
+        margin-bottom: 2px;
+        border: 1px solid;
+    }
+    input:focus-visible {
+        border: 1px solid;
+        outline: 0;
+    }
+    input[type="range"] {
+        appearance: none;
+        accent-color: #888f;
+        border: 0;
+        border-radius: 0;
+        background-color: transparent;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+        box-sizing: content-box;
+        border: 1px solid #111;
+        height: 15px;
+        background-color: #252525;
+    }
+    input[type="range"]::-moz-range-track {
+        box-sizing: content-box;
+        border: 1px solid #111;
+        height: 15px;
+        background-color: #252525;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+        height: 100%;
+        aspect-ratio: 1;
+        border: none;
+        border-radius: 50%;
+        background: #888;
+
+        /*specific*/
+        -webkit-appearance: none;
+    }
+    input[type="range"]::-moz-range-thumb {
+        height: 100%;
+        aspect-ratio: 1;
+        border: none;
+        border-radius: 50%;
+        background: #888;
+
+        /*specific*/
+        margin-top: 0;
+    }
+
+    .slider {
+    }
+    .minmax {
+        max-width: 64px;
+    }
+    /* input selector would not be here if .message had bigger priority */
+    input[type="text"].message {
+        position: absolute;
+        right: 0;
+        color: #f40;
+        background: #0000;
+        border: none;
+        field-sizing: content;
+        max-width: 300px;
+
+        /* should? */
+        pointer-events: none;
+        cursor: default;
+        user-select: none;
+    }
+
+    #colorPicker {
+        position: absolute;
+        left: 100px;
+        top: 100px;
+        width: 205px;
+        height: 255px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        padding: 5px;
+        box-shadow: #000 10px 10px 40px;
+    }
+    .colorPickerColor {
+        overflow: auto;
+        width: 45px;
+        height: 45px;
+        aspect-ratio: 1;
+        margin: 0;
+        border: 1px solid #fff8;
+    }
+    #colorPicker > :hover {
+        border-color: #ffff;
+    }
+    
+    .rulerText {
+        position: absolute;
+        background: transparent;
+        top: 0px;
+        pointer-events: none;
+        cursor: default;
+        user-select: none;
+    }
+
+    .rightButton {
+        width: 48px;
+        height: 48px;
+        border: 1px solid;
+        margin: 2px;
+    }
+    .rightButton:hover {
+    }
+    #helpPanel {
+        position: absolute;
+        bottom: 0px;
+        width: 100%;
+        padding: 4px;
+        white-space: pre-wrap;
+        max-height: 50dvh;
+        overflow-y: auto;
+    }
+    #exportPopup {
+        position: absolute;
+        width: 400px;
+        height: 100px;
+        display: flex;
+        align-items: center;
+        bottom: 64px;
+        right: 64px;
+        text-align: center;
+    }
+    code {
+        font-family: monospace;
+        background-color: #8884;
+        padding-left: 4px;
+        padding-right: 4px;
+        border: 1px solid #8888;
+        border-radius: 4px;
+    }
+</style>
+<script>
+    let isDraggingDivider = false;
+    let dividerOffset = 0;
+
+    let isPanning = false;
+    let panPrevX = 0;
+    let panPrevY = 0;
+
+    let cameraX = +(loadState("cx") || 0); // in graph coordinates
+    let cameraY = +(loadState("cy") || 0);
+    let cameraZ = +(loadState("cz") || 3); // graphs window height spans pow(2, cameraZ) graph units.
+
+    let targetCameraX = cameraX;
+    let targetCameraY = cameraY;
+    let targetCameraZ = cameraZ;
+
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+
+    function resizeCanvas() {
+        const w = rightPanel.getBoundingClientRect().width - 4;
+        const h = rightPanel.getBoundingClientRect().height - 4;
+        canvas.width = w * window.devicePixelRatio;
+        canvas.height = h * window.devicePixelRatio;
+        canvas.style.width = w + "px";
+        canvas.style.height = h + "px";
+    }
+
+    divider.addEventListener('mousedown', (e) => {
+        isDraggingDivider = true;
+        dividerOffset = divider.getBoundingClientRect().left - e.clientX;
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+        isPanning = true;
+        panPrevX = e.clientX;
+        panPrevY = e.clientY;
+    })
+    canvas.addEventListener('mousewheel', (e) => {
+        const step = 0.25;
+        const pointX =  ((e.clientX - canvas.getBoundingClientRect().left) * window.devicePixelRatio - canvas.width  * 0.5) / canvas.height * exp2(cameraZ) + cameraX;
+        const pointY = -((e.clientY - canvas.getBoundingClientRect().top ) * window.devicePixelRatio - canvas.height * 0.5) / canvas.height * exp2(cameraZ) + cameraY;
+
+        const d = e.deltaY * (0.01 * step) * window.devicePixelRatio;
+
+        const t = exp2(d);
+
+        targetCameraX = pointX + (targetCameraX - pointX) * t;
+        targetCameraY = pointY + (targetCameraY - pointY) * t;
+
+        targetCameraZ += d;
+    });
+
+    {
+        let loaded = loadState("d");
+        if (loaded) {
+            leftPanel.style.flex = `0 0 ${loaded}px`;
+        } else {
+            leftPanel.style.flex = `0 0 30vw`;
+        }
+    }
+
+    document.addEventListener('mousemove', (e) => {
+        if (isDraggingDivider) {
+            const containerRect = container.getBoundingClientRect();
+            let newLeftWidth = e.clientX - containerRect.left;
+
+            const leftLimit = 100;
+            const rightLimit = 200;
+
+            // Set minimum width for each panel (100px)
+            if (newLeftWidth < leftLimit) newLeftWidth = leftLimit;
+            if (newLeftWidth > containerRect.width - rightLimit) newLeftWidth = containerRect.width - rightLimit;
+
+            const left = newLeftWidth + dividerOffset;
+
+            storeState("d", left)
+            leftPanel.style.flex = `0 0 ${left}px`;
+            resizeCanvas();
+        }
+        if (isPanning) {
+            targetCameraX -= (e.clientX - panPrevX) * window.devicePixelRatio / canvas.height * exp2(cameraZ);
+            targetCameraY += (e.clientY - panPrevY) * window.devicePixelRatio / canvas.height * exp2(cameraZ);
+            panPrevX = e.clientX;
+            panPrevY = e.clientY;
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDraggingDivider = false;
+        isPanning = false;
+    });
+    window.addEventListener('resize', () => {
+        resizeCanvas();
+    });
+
+    let selectingColorForInput;
+    let ignoreFirstClick = false;
+
+    function hexCharToInt(c) {
+        if (c <= 57) return c - 48;
+        if (c <= 70) return c - 65 + 10;
+        return c - 97 + 10;
+    }
+    function hexCharToFloat(c) {
+        return hexCharToInt(c) / 15.0;
+    }
+    function colorStringTo4Floats(color) {
+        return [
+            hexCharToFloat(color.charCodeAt(1)),
+            hexCharToFloat(color.charCodeAt(2)),
+            hexCharToFloat(color.charCodeAt(3)),
+            hexCharToFloat(color.charCodeAt(4)),
+        ];
+    }
+
+    function updateGraphColorsUniforms() {
+        const colors = inputs.map((i) => colorStringTo4Floats(i.color)).flat();
+        if (program !== undefined) {
+            gl.uniform4fv(gl.getUniformLocation(program, "graph_colors"), colors);
+        }
+    }
+    function styleForColor(color) {
+        const opaque = color.substring(0, 4);
+        return `    
+            background-image: linear-gradient(45deg,
+                ${opaque} 25%,
+                ${color} 25%,
+                ${color} 50%,
+                ${opaque} 50%,
+                ${opaque} 75%,
+                ${color} 75%,
+                ${color});
+            background-size: 16px 16px;
+        `;
+    }
+    function updateCssColor(input) {
+        input.showPicker.style = styleForColor(input.color);
+    }
+
+    let colors = [
+        '#f44f','#4f4f','#44ff',
+        '#ff4f','#4fff','#f4ff',
+        '#fa4f','#f4af','#af4f',
+        '#4faf','#a4ff','#4aff',
+        '#ffff','#888f','#000f','#8880'
+    ];
+
+    const thicknessSlider = document.createElement("input");
+
+    let inputs = [];
+    for (let i = 0; i < 20; ++i) {
+        let input = {};
+        inputs[i] = input;
+
+        input.index = i;
+        input.type = 'none';
+        input.thickness = 2.0;
+        const line = document.createElement("div");
+        line.className = "line";
+        {
+            const showPicker = document.createElement("button");
+            showPicker.className = "showPicker";
+            showPicker.tabIndex = -1;
+            showPicker.addEventListener('mousedown', (e) => {
+                console.log(colorPicker.style.display);
+                colorPicker.style = `
+                    left: ${e.clientX}px;
+                    top: ${Math.min(e.clientY, window.innerHeight - colorPicker.getBoundingClientRect().height)}px;
+                    display: ${colorPicker.style.display == 'none' ? 'flex' : 'none'};
+                `;
+                ignoreFirstClick = true;
+                selectingColorForInput = input;
+                thicknessSlider.value = input.thickness;
+            })
+            line.appendChild(showPicker);
+            input.showPicker = showPicker;
+            input.color = colors[i % (colors.length - 1)];
+            updateCssColor(input);
+        }
+        {
+            const text = document.createElement("input");
+            text.type = "text";
+            text.addEventListener('input', () => {
+                updateInput(input);
+            })
+            line.appendChild(text);
+            input.text = text;
+        }
+        {
+            const slider = document.createElement("input");
+            slider.type = "range";
+            slider.className = "slider";
+            slider.min = -10;
+            slider.max = 10;
+            slider.step = 1e-3;
+            slider.tabIndex = -1;
+            slider.addEventListener('input', (e) => {
+                if (program !== undefined) {
+                    gl.uniform1f(gl.getUniformLocation(program, input.name), slider.value);
+                }
+                input.text.value = `${input.name} = ${slider.value}`;
+            });
+            line.appendChild(slider);
+            input.slider = slider;
+        }
+        {
+            const min = document.createElement("input");
+            min.type = "text";
+            min.className = "minmax";
+            min.value = "-10";
+            min.tabIndex = -1;
+            min.addEventListener('input', () => {
+                input.slider.min = min.value;
+                input.slider.step = (input.max.value - input.min.value) * 1e-3;
+            })
+            min.addEventListener(`focus`, () => {
+                min.select();
+                input.min.tabIndex = null;
+                input.max.tabIndex = null;
+            });
+            min.addEventListener(`focusout`, () => {
+                input.min.tabIndex = -1;
+                input.max.tabIndex = -1;
+            });
+            line.appendChild(min);
+            input.min = min;
+        }
+        {
+            const max = document.createElement("input");
+            max.type = "text";
+            max.className = "minmax";
+            max.value = "10";
+            max.tabIndex = -1;
+            max.addEventListener('input', (e) => {
+                input.slider.max = max.value;
+                input.slider.step = (input.max.value - input.min.value) * 1e-3;
+            })
+            max.addEventListener(`focus`, () => {
+                max.select();
+                input.min.tabIndex = null;
+                input.max.tabIndex = null;
+            });
+            max.addEventListener(`focusout`, () => {
+                input.min.tabIndex = -1;
+                input.max.tabIndex = -1;
+            });
+            line.appendChild(max);
+            input.max = max;
+        }
+        {
+            const message = document.createElement("input");
+            message.type = "text";
+            message.className = "message";
+            message.value = "report message";
+            message.readOnly = true;
+            message.tabIndex = -1;
+            message.addEventListener(`focus`, () => message.select());
+            line.appendChild(message);
+            input.message = message;
+        }
+        leftPanel.appendChild(line);
+    }
+
+    for (let color of colors) {
+        const button = document.createElement("button");
+        button.className = "colorPickerColor";
+        button.style = styleForColor(color);
+        button.addEventListener('mouseup', (e) => {
+            selectingColorForInput.color = color;
+            updateCssColor(selectingColorForInput);
+            updateGraphColorsUniforms();
+        })
+        colorPicker.appendChild(button);
+    }
+    {
+        thicknessSlider.type = "range";
+        thicknessSlider.style = "width: 100%;";
+        thicknessSlider.value = 1;
+        thicknessSlider.min = 1;
+        thicknessSlider.max = 8;
+        thicknessSlider.step = 0.1;
+        thicknessSlider.addEventListener('input', (e) => {
+            selectingColorForInput.thickness = thicknessSlider.value;
+            updateGraphThicknessUniforms();
+        });
+        colorPicker.appendChild(thicknessSlider);
+    }
+
+    colorPicker.style.display = 'none';
+    window.onmousedown = (e) => {
+        if (ignoreFirstClick) {
+            ignoreFirstClick = false;
+            return;
+        }
+        if (!colorPicker.contains(e.target)) {
+            colorPicker.style.display = 'none';
+        }
+    };
+
+    let rulerTexts = [];
+    for (let i = 0; i < 64; ++i) {
+        const rulerText = document.createElement("div");
+        rulerText.className = "rulerText";
+        rulerText.innerHTML = "0.0";
+        rightPanel.insertBefore(rulerText, helpPanel);
+        rulerTexts.push(rulerText);
+    }
+
+    let needToRecompile = true;
+
+    function parseConstant(str) {
+        return +str;
+    }
+    function updateInput(input) {
+        input.showFract = true;
+        input.isNamedByUser = false;
+        if (input.text.value.trim() == "") {
+            input.type = 'none';
+        } else if (input.text.value.includes("=")) {
+            let [name, value] = input.text.value.split("=").map(s => s.trim());
+            let constant = parseConstant(value);
+            if (constant) {
+                input.type = 'slider';
+                input.name = name;
+                let min = Math.min(input.min.value, constant);
+                let max = Math.max(input.max.value, constant);
+                input.min.value = min;
+                input.max.value = max;
+                input.slider.value = constant;
+                input.slider.min = min;
+                input.slider.max = max;
+            } else {
+                input.type = 'graph';
+                let nameTokens = tokenize(name);
+                if (nameTokens.length == 1) {
+                    input.name = name;
+                    input.expr = value;
+                    input.isNamedByUser = true;
+                } else {
+                    input.name = `f${input.index}`;
+                    input.expr = `(${name})-(${value})`;
+                    input.showFract = false;
+                }
+            }
+        } else {
+            input.type = 'graph';
+            input.name = `f${input.index}`;
+            input.expr = input.text.value;
+        }
+
+        if (input.type == 'none') {
+            input.showPicker.hidden = true;
+            input.slider.hidden = true;
+            input.min.hidden = true;
+            input.max.hidden = true;
+        } else if (input.type == 'graph') {
+            input.showPicker.hidden = false;
+            input.slider.hidden = true;
+            input.min.hidden = true;
+            input.max.hidden = true;
+        } else if (input.type == 'slider') {
+            input.showPicker.hidden = true;
+            input.slider.hidden = false;
+            input.min.hidden = false;
+            input.max.hidden = false;
+        }
+
+        needToRecompile = true;
+    }
+
+    let popupTimeout;
+    function showPopup(message) {
+        popupText.innerHTML = message;
+        exportPopup.style.display = 'flex';
+        clearTimeout(popupTimeout);
+        popupTimeout = setTimeout(() => {
+            exportPopup.style.display = 'none';
+        }, 2000);
+    }
+
+    function stateToUrlParams() {
+        let params = "?";
+
+        function write(name, value) {
+            params = `${params}${name}=${encodeURIComponent(value)};`;
+        }
+
+        write("cx", targetCameraX);
+        write("cy", targetCameraY);
+        write("cz", targetCameraZ);
+        for (let input of inputs) {
+            if (input.type == 'none') {
+            } else if (input.type == 'graph') {
+                write(`i${input.index}t`, input.type)
+                write(`i${input.index}c`, input.color);
+                write(`i${input.index}w`, input.thickness);
+                write(`i${input.index}e`, input.text.value);
+            } else if (input.type == 'slider') {
+                write(`i${input.index}t`, input.type)
+                write(`i${input.index}e`, input.text.value);
+                write(`i${input.index}a`, input.min.value);
+                write(`i${input.index}b`, input.max.value);
+            }
+        }
+
+        return params;
+    }
+
+    function exportUrl() {
+        return "https://twixuss.github.io/gralc/index.html" + stateToUrlParams();
+    }
+
+    exportButton.addEventListener('click', e => {
+        showPopup("Successfully exported to clipboard!");
+        
+        navigator.clipboard.writeText(exportUrl());
+    });
+
+    /////////////////
+    // STATE SETUP //
+    /////////////////
+    let urlParam = window.location.href.split('?')[1] || "";
+    if (urlParam) {
+        try {
+            urlParam = decodeURIComponent(urlParam);
+            // Parse from URL
+            for (let input of inputs) {
+                input.type = 'none';
+            }
+            const params = urlParam.split(";");
+
+            for (let param of params) {
+                if (!param.length) continue;
+                let [name, value] = split2(param, '=');
+                switch (name) {
+                    case 'cx': cameraX = targetCameraX = +value; continue;
+                    case 'cy': cameraY = targetCameraY = +value; continue;
+                    case 'cz': cameraZ = targetCameraZ = +value; continue;
+                }
+                if (name[0] == "i") {
+                    let index = name.substr(1, name.length-2);
+                    let input = inputs[index];
+                    switch (name[name.length - 1]) {
+                        case "t": input.type = value; continue;
+                        case "c": input.color = value; continue;
+                        case "w": input.thickness = +value; continue;
+                        case "e": input.text.value = value; continue;
+                        case "a": input.min.value = +value; continue;
+                        case "b": input.max.value = +value; continue;
+                    }
+                }
+            }
+        }
+        catch {
+            showPopup("Failed to parse URL parameter!");
+            loadStateOrDefault();
+        }
+    } else {
+        loadStateOrDefault();
+    }
+    function loadStateOrDefault() {
+        if (loadState("i0t")) {
+            // Load from storage
+            for (let input of inputs) {
+                input.type = loadState(`i${input.index}t`) || "";
+                input.color = loadState(`i${input.index}c`) || "";
+                input.thickness = loadState(`i${input.index}w`) || "";
+                input.text.value = loadState(`i${input.index}e`) || "";
+                input.min.value = loadState(`i${input.index}a`) || "";
+                input.max.value = loadState(`i${input.index}b`) || "";
+            }
+        } else {
+            // Defaults
+            inputs[0].text.value = "pow(t, x)";
+            inputs[1].text.value = "t=1.7"; inputs[1].min.value = "0"; inputs[1].max.value = "2";
+            inputs[2].text.value = "sin(x + iTime)";
+            inputs[3].text.value = "length(p) - 1"; inputs[3].color = "#8880";
+            inputs[4].text.value = "sin(x) = sin(y)"; inputs[4].color = "#8880";
+        }
+    }
+
+
+    for (let input of inputs) {
+        updateInput(input);
+        updateCssColor(input);
+    }
+
+    console.log(inputs);
+
+    resizeCanvas();
+
+    let program, resolutionLocation, timeLocation, cameraLocation;
+    function updateGraphThicknessUniforms() {
+        const thicknessUniform = gl.getUniformLocation(program, "graph_thickness");
+        const thickness = inputs.map((i) => i.thickness);
+        if (program !== undefined) {
+            gl.uniform1fv(thicknessUniform, thickness);
+        }
+    }
+
+    const gridScalingOffset = -0.3;
+
+    function recompile() {
+        console.log('recompiling');
+
+        // Hide message reports
+        for (let input of inputs) {
+            input.message.hidden = true;
+        }
+
+        // Compute dependencies
+        for (let i = 0; i < inputs.length; ++i) {
+            let input = inputs[i];
+            if (input.type == 'graph') {
+                input.tokens = tokenize(input.expr);
+                input.processedExpr = input.tokens.join("");
+                input.dependsOnX = false;
+                input.dependsOnY = false;
+                if (input.name == "x") {
+                    input.dependsOnY = true;
+                } else if (input.name == "y") {
+                    input.dependsOnX = true;
+                } else {
+                    if (input.tokens.includes('x')) input.dependsOnX = true;
+                    if (input.tokens.includes('y')) input.dependsOnY = true;
+                    if (input.tokens.includes('p')) { input.dependsOnX = true; input.dependsOnY = true; }
+                }
+            }
+        }
+        for (let i = 0; i < inputs.length; ++i) {
+            let input = inputs[i];
+            if (input.type == 'graph') {
+                for (let token of input.tokens) {
+                    const found = inputs.find(other => other.type == 'graph' && other.name != "x" && other.name != "y" && other.name == token);
+                    if (found !== undefined) {
+                        input.dependsOnX ||= found.dependsOnX;
+                        input.dependsOnY ||= found.dependsOnY;
+                    }
+                }
+            }
+        }
+
+        const vertexShaderSource = `#version 300 es
+            precision highp float;
+            
+            in vec2 position;
+            
+            void main() {
+                vec2 positions[] = vec2[](
+                    vec2(-1,-1),
+                    vec2(-1, 3),
+                    vec2( 3,-1)
+                );
+                gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
+            }
+        `;
+        
+        let graphDefinitions = "";
+        let graphCode = "";
+        let sliderUniformDefinitions = "";
+
+        for (let i = 0; i < inputs.length; ++i) {
+            let input = inputs[i];
+            if (input.type == 'graph') {
+
+                graphDefinitions += `
+                    float eval_${input.name}(vec2 p) {
+                        float x = p.x;
+                        float y = p.y;
+                        return ${input.processedExpr};
+                    }
+                    float ${input.name};
+                `.replace(/\s+/g, " ") + "\n";
+
+                let visExpr;
+                let isZ = false;
+                if (input.dependsOnX && input.dependsOnY) {
+                    visExpr = input.name;
+                    isZ = true;
+                } else if (input.dependsOnY) {
+                    visExpr = `uv.x - (${input.name})`;
+                } else if (input.dependsOnX) {
+                    visExpr = `uv.y - (${input.name})`;
+                } else {
+                    visExpr = input.name;
+                }
+
+                if (isZ) {
+                    let fractCode = "";
+                    if (input.showFract) {
+                        fractCode = `
+                            #if 0
+                            // Very expensive normalization. If it is needed, shoud not do it here, calculate once on cpu.
+                            vec2 minmax = vec2(1e30, -1e30);
+                            for (float y = 0.0f; y <= 1.0f; y += 0.25f) {
+                            for (float x = 0.0f; x <= 1.0f; x += 0.25f) {
+                                float f = eval_${input.name}((vec2(x,y) - 0.5) * iResolution / iResolution.y * zoom + iCamera.xy);
+                                minmax.x = min(minmax.x, f);
+                                minmax.y = max(minmax.y, f);
+                            }
+                            }
+                            float m = (r - minmax.x) / (minmax.y - minmax.x);
+                            #else
+                            //float m = frac(r);
+                            float m = sfrac(r, max(1e-10, length(vec2(dFdx(r), dFdy(r)))));
+                            #endif
+
+                            outColor.xyz = mix(outColor.xyz, c.xyz, c.w * m * (0.5 - fract(floor(r*0.1)*0.5)*0.25));
+                        `;
+                    }
+                    graphCode += `
+                    ${input.name} = eval_${input.name}(uv);
+                    {
+                        float r = ${visExpr};
+                        vec4 c = graph_colors[${input.index}];
+
+                        ${fractCode};
+                        
+                        float d = max(1e-10, length(vec2(dFdx(r), dFdy(r))));
+                        float thick = graph_thickness[${input.index}];
+                        float g = mapc(abs(r), d*thick, d*(thick - 1.0), 0.0, 1.0);
+                        outColor.xyz = mix(outColor.xyz, c.xyz, c.w * g);
+                    }`;
+                } else {
+                    graphCode += `
+                    ${input.name} = eval_${input.name}(uv);
+                    {
+                        float r = ${visExpr};
+                        if (!isnan(r) && abs(r)<1e20) {
+                            vec2 vd = vec2(dFdx(r), dFdy(r));
+                            float d = max(length(vd), 1e-10);
+                            
+                            
+                            //if (activeIndex == ${input.index}) {
+                            //    float thick = graph_thickness[${input.index}] + 1.0;
+                            //    float g = mapc(abs(r), d*thick, d*(thick - 1.0), 0.0, 1.0);
+                            //    vec4 c = activeColor;
+                            //    outColor.xyz = mix(outColor.xyz, c.xyz, c.w * g);
+                            //}
+
+                            float thick = graph_thickness[${input.index}];
+                            float g = mapc(abs(r), d*thick, d*(thick - 1.0), 0.0, 1.0);
+                            vec4 c = graph_colors[${input.index}];
+                            outColor.xyz = mix(outColor.xyz, c.xyz, c.w * g);
+                        }
+                    }`;
+                }
+            } else if (input.type == 'slider') {
+                sliderUniformDefinitions += `uniform float ${input.name};\n`;
+            }
+        }
+
+        const fragmentShaderSource = `#version 300 es
+            precision highp float;
+            
+            #define pi 3.141592653
+            #define tau 6.283185307
+            #define phi 1.618033988
+
+            #define frac fract
+            #define sfrac sfract
+            #define saturate(x) clamp(x, 0.0, 1.0)
+            #define clamp01(x) clamp(x, 0.0, 1.0)
+            #define ddx dFdx
+            #define ddy dFdy
+            #define lerp mix
+            #define fmod mod
+            #define rsqrt inversesqrt
+            #define log10(x) (log(x)/log(10.0))
+            #define atan2(y,x) atan(y,x)
+
+            float map(float x, float a, float b, float c, float d) { return (x - a) / (b - a) * (d - c) + c; }
+            vec2  map(vec2  x, vec2  a, vec2  b, vec2  c, vec2  d) { return (x - a) / (b - a) * (d - c) + c; }
+            vec3  map(vec3  x, vec3  a, vec3  b, vec3  c, vec3  d) { return (x - a) / (b - a) * (d - c) + c; }
+            vec4  map(vec4  x, vec4  a, vec4  b, vec4  c, vec4  d) { return (x - a) / (b - a) * (d - c) + c; }
+            float mapc(float x, float a, float b, float c, float d) { x = clamp(x, min(a, b), max(a, b)); return (x - a) / (b - a) * (d - c) + c; }
+            vec2  mapc(vec2  x, vec2  a, vec2  b, vec2  c, vec2  d) { x = clamp(x, min(a, b), max(a, b)); return (x - a) / (b - a) * (d - c) + c; }
+            vec3  mapc(vec3  x, vec3  a, vec3  b, vec3  c, vec3  d) { x = clamp(x, min(a, b), max(a, b)); return (x - a) / (b - a) * (d - c) + c; }
+            vec4  mapc(vec4  x, vec4  a, vec4  b, vec4  c, vec4  d) { x = clamp(x, min(a, b), max(a, b)); return (x - a) / (b - a) * (d - c) + c; }
+
+
+            bool eq(float a, float b) {
+                return a == b;
+                //return abs(floatBitsToInt(a) - floatBitsToInt(b)) <= 1; // Check for exactly one bit difference.
+                //return abs(a-b)<=1e-9; // Alternative
+            }
+            float smin(float a, float b, float k) {
+                float h = clamp((b-a)/k+0.5,0.0,1.0);
+                return b+h*(a-b+k*0.5*(h-1.0));
+            }
+            float smax(float a, float b, float k) {
+                return smin(a, b, -k);
+            }
+            float sfloor(float x, float s) {
+                // Sometimes the formula gives incorrect results if x is within a single bit difference from *.0 or *.5
+                // These are fixed points (they don't depend on s), so we can return exact value.
+                if (eq(x,floor(x)) || eq(x+0.5,floor(x+0.5)))
+                    return x-0.5;
+                    
+                float x1 = uintBitsToFloat(floatBitsToUint(x + 0.5) - 1u);
+                
+                return smin(floor(x), (fract(x1)-0.5)/(clamp(s,1e-5,1.0)*0.5)+floor(x1)-0.5,-sign(fract(x)-0.5));
+                //return x - sfract(x, s);
+            }
+            float sfract(float x, float s) {
+                //return smin(fract(x), 0.5+(floor(x+0.5)-x)/clamp(s,1e-5,1.0), sign(fract(x)-0.5)); // Independent implementation
+                return x - sfloor(x, s);
+            } 
+
+
+
+
+            uniform vec2 iResolution;
+            uniform vec3 iCamera;
+            uniform float iTime;
+            uniform vec4 backgroundColor;
+            uniform vec4 gridColor;
+            //uniform vec4 activeColor;
+            
+            out vec4 outColor;
+            
+            uniform vec4 graph_colors[20];
+            uniform float graph_thickness[20];
+            //uniform int activeIndex;
+            ${sliderUniformDefinitions}
+
+            #line 1 // No need to constantly update startingLineNumber with this
+            ${graphDefinitions}
+
+            void main() {
+                outColor = backgroundColor;
+
+                float zoom = exp2(iCamera.z);
+                vec2 uv = (gl_FragCoord.xy - iResolution * 0.5) / iResolution.y * zoom + iCamera.xy;
+
+                float gridScale2 = pow(10.0, -(floor(log10(zoom) + ${gridScalingOffset.toFixed(3)})));
+                float gridScale1 = gridScale2 * 10.;
+
+                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.3*smoothstep(max(1e-10, fwidth(uv.x*gridScale1))*1.0, 0.0, abs(fract(uv.x*gridScale1+0.5)-0.5)));
+                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.3*smoothstep(max(1e-10, fwidth(uv.y*gridScale1))*1.0, 0.0, abs(fract(uv.y*gridScale1+0.5)-0.5)));
+                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.6*smoothstep(max(1e-10, fwidth(uv.x*gridScale2))*2.0, 0.0, abs(fract(uv.x*gridScale2+0.5)-0.5)));
+                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.6*smoothstep(max(1e-10, fwidth(uv.y*gridScale2))*2.0, 0.0, abs(fract(uv.y*gridScale2+0.5)-0.5)));
+                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*1.0*smoothstep(max(1e-10, fwidth(uv.x))*2.0, 0.0, abs(uv.x)));
+                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*1.0*smoothstep(max(1e-10, fwidth(uv.y))*2.0, 0.0, abs(uv.y)));
+                
+                ${graphCode}
+            }
+        `;
+
+        console.log(fragmentShaderSource);
+
+        function reportErrors(reportString) {
+            console.log(reportString);
+
+            let reportLines = reportString.split("\n");
+            reportLines = reportLines.splice(0, reportLines.length - 1); // Remove trailing line that consists only of \0
+            //console.log("reportLines", reportLines);
+
+            const allReports = reportLines.map(l => {
+                const m = [...l.matchAll(/ERROR: 0:(\d+): (.*)/g)];
+                //console.log(m);
+                return {line: m[0][1], message: m[0][2]};
+            }).filter(l => !!l);
+            //console.log("allReports", allReports);
+
+            const map = {};
+            for (let report of allReports) {
+                map[report.line] = (map[report.line] || "") + report.message + ". ";
+            }
+            //console.log("map", map);
+
+            let perLineReports = [];
+            for (let line in map) {
+                perLineReports.push({line: +line, message: map[line]});
+            }
+            //console.log("perLineReports", perLineReports);
+
+            let sortedReports = perLineReports.sort(r => r.line);
+            //console.log("sortedReports", sortedReports);
+
+            const startingLineNumber = 1; // There's a #line directive in the shader
+            for (let report of sortedReports) {
+                let graphIndex = report.line - startingLineNumber;
+
+                let foundInput;
+                let currentGraphIndex = 0;
+                for (let input of inputs) {
+                    if (input.type == 'graph') {
+                        if (currentGraphIndex == graphIndex) {
+                            foundInput = input;
+                            break;
+                        }
+                        ++currentGraphIndex;
+                    }
+                }
+                if (foundInput) {
+                    foundInput.message.value = report.message;
+                    foundInput.message.hidden = false;
+                }
+            }
+        }
+        function compileShader(source, type) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                reportErrors(gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+        
+        const vertexShader = compileShader(vertexShaderSource, gl.VERTEX_SHADER);
+        if (!vertexShader)
+            return null;
+
+        const fragmentShader = compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER);
+        if (!fragmentShader)
+            return null;
+        
+        let newProgram = gl.createProgram();
+        gl.attachShader(newProgram, vertexShader);
+        gl.attachShader(newProgram, fragmentShader);
+        gl.linkProgram(newProgram);
+        
+        if (!gl.getProgramParameter(newProgram, gl.LINK_STATUS)) {
+            reportErrors(gl.getProgramInfoLog(newProgram));
+            return null;
+        }
+
+        program = newProgram;
+        gl.useProgram(program);
+        resolutionLocation = gl.getUniformLocation(program, 'iResolution');
+        timeLocation = gl.getUniformLocation(program, 'iTime');
+        cameraLocation = gl.getUniformLocation(program, 'iCamera');
+        for (let input of inputs) {
+            if (input.type == 'graph') {
+            } else if (input.type == 'slider') {
+                if (program !== undefined) {
+                    gl.uniform1f(gl.getUniformLocation(program, input.name), input.slider.value);
+                }
+            }
+        }
+        updateGraphColorsUniforms();
+        updateGraphThicknessUniforms();
+        updateThemeUniforms();
+    }
+    
+    const darkTheme = {
+        globalBackground: "#333f",
+        globalForeground: "#ffff",
+        inputBackground: "#222f",
+        inputBorder: "#0008",
+        inputBorderActive: "#ffff",
+        buttonBorderRegular: "#fff4",
+        buttonBorderHovered: "#fff8",
+        divider: "#222f",
+        colorPickerBorderRegular: "#fff8",
+        colorPickerBorderHovered: "#ffff",
+        graphBackground: "#222f",
+        graphGrid: "#444f",
+        //graphActive: "#ffff",
+    };
+    const lightTheme = {
+        globalBackground: "#ffff",
+        globalForeground: "#000f",
+        inputBackground: "#eeef",
+        inputBorder: "#0003",
+        inputBorderActive: "#000f",
+        buttonBorderRegular: "#0004",
+        buttonBorderHovered: "#0008",
+        divider: "#eeef",
+        colorPickerBorderRegular: "#0008",
+        colorPickerBorderHovered: "#000f",
+        graphBackground: "#eeef",
+        graphGrid: "#aaaf",
+        //graphActive: "#000f",
+    };
+    let theme = (loadState("t") || "d") == "d" ? darkTheme : lightTheme;
+
+    function updateThemeUniforms() {
+        if (program !== undefined) {
+            gl.uniform4fv(gl.getUniformLocation(program, "backgroundColor"), colorStringTo4Floats(theme.graphBackground));
+            gl.uniform4fv(gl.getUniformLocation(program, "gridColor"), colorStringTo4Floats(theme.graphGrid));
+            //gl.uniform4fv(gl.getUniformLocation(program, "activeColor"), colorStringTo4Floats(theme.graphActive));
+        }
+    }
+    const rules = Array.from(document.styleSheets[0].cssRules);
+    // This does not work for some reason. Identical css above works, here it doesnt.
+    //{
+    //    function setSliderTrackStyle(selector) {
+    //        const rule = rules.find(r => r.selectorText === selector);
+    //        if (!rule) return;
+    //        console.log("updating", selector);
+    //        rule.style += `
+    //            box-sizing: content-box;
+    //            border: 1px solid #111;
+    //            height: 15px;
+    //            background-color: #555;
+    //        `;
+    //    }
+    //    function setSliderThumbStyle(selector) {
+    //        const rule = rules.find(r => r.selectorText === selector);
+    //        if (!rule) return;
+    //        console.log("updating", selector);
+    //        rule.style += `
+    //            width: 100px;
+    //            height: 100px;
+    //            border: none;
+    //            border-radius: 50%;
+    //            background: white;
+    //        `;
+    //    }
+    //
+    //    setSliderTrackStyle("input[type=\"range\"]::-webkit-slider-runnable-track");
+    //    setSliderTrackStyle("input[type=\"range\"]::-moz-range-track");
+    //    setSliderThumbStyle("input[type=\"range\"]::-webkit-slider-thumb");
+    //    setSliderThumbStyle("input[type=\"range\"]::-moz-range-thumb");
+    //}
+    function updateThemeStyles() {
+        {const rule = rules.find(r => r.selectorText === '*');
+            rule.style.backgroundColor = theme.globalBackground;
+            rule.style.color = theme.globalForeground;
+        }
+        {const rule = rules.find(r => r.selectorText === 'input[type="text"]');
+            rule.style.backgroundColor = theme.inputBackground;
+            rule.style.borderColor = theme.inputBorder;
+        }
+        {const rule = rules.find(r => r.selectorText === 'input:focus-visible');
+            rule.style.borderColor = theme.inputBorderActive;
+        }
+        {const rule = rules.find(r => r.selectorText === '.colorPickerColor');
+            rule.style.borderColor = theme.colorPickerBorderRegular;
+        }
+        {const rule = rules.find(r => r.selectorText === '#colorPicker > :hover');
+            rule.style.borderColor = theme.colorPickerBorderHovered;
+        }
+        {const rule = rules.find(r => r.selectorText === '.rightButton');
+            rule.style.borderColor = theme.buttonBorderRegular;
+        }
+        {const rule = rules.find(r => r.selectorText === '.rightButton:hover');
+            rule.style.borderColor = theme.buttonBorderHovered;
+        }
+        {const rule = rules.find(r => r.selectorText === '#divider');
+            rule.style.backgroundColor = theme.divider;
+        }
+        {const rule = rules.find(r => r.selectorText === 'input[type="range"]::-webkit-slider-runnable-track'); if (rule) {
+            rule.style.backgroundColor = theme.inputBackground;
+            rule.style.borderColor = theme.inputBorder;
+        }}
+        {const rule = rules.find(r => r.selectorText === 'input[type="range"]::-moz-range-track'); if (rule) {
+            rule.style.backgroundColor = theme.inputBackground;
+        }}
+    }
+    function setTheme(newTheme) {
+        theme = newTheme;
+        updateThemeStyles();
+        updateThemeUniforms();
+    }
+    
+    recompile();
+    needToRecompile = false;
+    setTheme(theme);
+    darkThemeButton.addEventListener('click', e => setTheme(darkTheme));
+    lightThemeButton.addEventListener('click', e => setTheme(lightTheme));
+
+    resetCameraButton.addEventListener('click', e => {
+        targetCameraX = 0;
+        targetCameraY = 0;
+        targetCameraZ = 3;
+    });
+
+    resetStateButton.addEventListener('click', e => {
+        resetState();
+    });
+
+    helpButton.addEventListener('click', e => {
+        helpPanel.hidden ^= 1;
+    });
+
+    let prevTimestamp = document.timeline.currentTime;
+    let time = 0.0;
+    let storageWriteTimer = 0.0;
+    
+    function animate(timestamp) {
+        const frameTime = (timestamp && prevTimestamp) ? (timestamp - prevTimestamp) / 1000 : 0.016;
+        prevTimestamp = timestamp;
+        time += frameTime;
+        
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        cameraX = cameraX + (targetCameraX - cameraX) * (1.0 - Math.exp(frameTime * -50.0));
+        cameraY = cameraY + (targetCameraY - cameraY) * (1.0 - Math.exp(frameTime * -50.0));
+        cameraZ = cameraZ + (targetCameraZ - cameraZ) * (1.0 - Math.exp(frameTime * -50.0));
+
+        if (needToRecompile) {
+            needToRecompile = false;
+            recompile();
+        }
+        if (program !== undefined) {
+            gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+            gl.uniform3f(cameraLocation, cameraX, cameraY, cameraZ);
+            gl.uniform1f(timeLocation, time);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+
+        storageWriteTimer += frameTime;
+        if (storageWriteTimer >= 0 && program) {
+            storageWriteTimer -= 1;
+            storeState("t", theme === lightTheme ? "l" : "d");
+            storeState("cx", targetCameraX);
+            storeState("cy", targetCameraY);
+            storeState("cz", targetCameraZ);
+            for (let input of inputs) {
+                // Redundant, but whatever...
+                storeState(`i${input.index}t`, input.type);
+                storeState(`i${input.index}c`, input.color);
+                storeState(`i${input.index}w`, input.thickness);
+                storeState(`i${input.index}e`, input.text.value);
+                storeState(`i${input.index}a`, input.min.value);
+                storeState(`i${input.index}b`, input.max.value);
+            }
+
+            window.history.replaceState(null, '', stateToUrlParams());
+        }
+
+        let zoom = exp2(cameraZ);
+        let log10zoom = floor(log10(zoom) + gridScalingOffset);
+        let fractionDigits = clamp(-log10zoom, 0, 100);
+        let step = pow(10, log10zoom);
+        let xmin = floor(( (0             - canvas.width  * 0.5) / canvas.height * zoom + cameraX)/step)*step;
+        let xmax = floor(( (canvas.width  - canvas.width  * 0.5) / canvas.height * zoom + cameraX)/step)*step;
+        let ymin = floor((-(0             - canvas.height * 0.5) / canvas.height * zoom + cameraY)/step)*step;
+        let ymax = floor((-(canvas.height - canvas.height * 0.5) / canvas.height * zoom + cameraY)/step)*step;
+
+        let x0 = clamp(+(0 - cameraX) / zoom * canvas.height + canvas.width  * 0.5, 25, canvas.width )/window.devicePixelRatio;
+        let y0 = clamp(-(0 - cameraY) / zoom * canvas.height + canvas.height * 0.5, 0, canvas.height - 15)/window.devicePixelRatio;
+
+        let rulerTextIndex = 0;
+        for (let x = xmin; x <= xmax; x += step) {
+            if (rulerTextIndex >= rulerTexts.length) break;
+            let rulerText = rulerTexts[rulerTextIndex++];
+            let left = +(x - cameraX) / zoom * canvas.height + canvas.width  * 0.5;
+            rulerText.innerHTML = x.toFixed(fractionDigits);
+            rulerText.style.left = `${(left - rulerText.getBoundingClientRect().width * (Math.abs(x) < 1e-3 ? 1.0 : 0.5))/window.devicePixelRatio}px`;
+            rulerText.style.top = `${y0}px`;
+        }
+        for (let y = ymax; y <= ymin; y += step) {
+            if (rulerTextIndex >= rulerTexts.length) break;
+            if (Math.abs(y) < 1e-3) continue;
+            let rulerText = rulerTexts[rulerTextIndex++];
+            let top = -(y - cameraY) / zoom * canvas.height + canvas.height  * 0.5;
+            rulerText.innerHTML = y.toFixed(fractionDigits);
+            rulerText.style.left = `${x0 - rulerText.getBoundingClientRect().width}px`;
+            rulerText.style.top = `${(top - rulerText.getBoundingClientRect().height*0.5)/window.devicePixelRatio}px`;
+        }
+        for (let i = rulerTextIndex; i < rulerTexts.length; ++i) {
+            let rulerText = rulerTexts[i];
+            rulerText.style.top = `-1000px`;
+        }
+        
+        canvas.hidden = false;
+
+        requestAnimationFrame(animate);
+    }
+    
+    animate();
+
+    function loadState(name) {
+        const value = localStorage.getItem(name);
+        //console.log(`LOAD ${name} = ${value}`);
+        return value;
+    }
+    function storeState(name, value) {
+        //console.log(`SET ${name} = ${value}`);
+        localStorage.setItem(name, value);
+    }
+    function resetState() {
+        console.log("resetState");
+        localStorage.clear();
+        window.location.href = window.location.href.split("?")[0] || window.location.href;
+    }
+
+    function tokenize(input) {
+        const tokens = [];
+        let i = 0;
+
+        while (i < input.length) {
+            const char = input[i];
+            if (/\s/.test(char)) {
+                ++i;
+                continue;
+            }
+            if (/\d/.test(char)) {
+                let number = '';
+                let encounteredDot = false;
+                while (i < input.length && /[\d.]/.test(input[i])) {
+                    encounteredDot ||= input[i] == '.';
+                    number += input[i++];
+                }
+                if (i < input.length) {
+                    if (input[i].toLowerCase() == "e") {
+                        number += input[i++];
+                        while (i < input.length && /[+-]/.test(input[i])) {
+                            number += input[i++];
+                        }
+                        while (i < input.length && /[\d.]/.test(input[i])) {
+                            number += input[i++];
+                        }
+                    } else {
+                        if (!encounteredDot) {
+                            number += ".0";
+                        }
+                    }
+                } else {
+                    if (!encounteredDot) {
+                        number += ".0";
+                    }
+                }
+                tokens.push(number);
+                continue;
+            }
+            if (/[a-zA-Z_]/.test(char)) {
+                let identifier = '';
+                while (i < input.length && /[a-zA-Z0-9_]/.test(input[i])) {
+                    identifier += input[i++];
+                }
+                tokens.push(identifier);
+                continue;
+            }
+            tokens.push(char);
+            ++i;
+        }
+
+        return tokens;
+    }
+
+    function exp2(x) { return Math.pow(2, x); }
+    function floor(x) { return Math.floor(x); }
+    function log10(x) { return Math.log10(x); }
+    function pow(x, y) { return Math.pow(x, y); }
+    function clamp(x, y, z) { return Math.min(Math.max(x, y), z); }
+
+    function split2(str, chr) {
+        const i = str.indexOf(chr);
+        return [str.substring(0, i), str.substring(i + 1)];
+    }
+
+    function debugBreak() {
+        try {
+            throw 1;
+        }
+        catch {
+
+        }
+    }
+</script>
+</html>
