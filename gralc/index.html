@@ -23,7 +23,7 @@ Until there is a better way, you can get a derivative of graph <code>f</code> by
 Type <code>name = number</code> where <code>name</code> is any valid GLSL identifier and <code>number</code> is any integer/float literal.
 
 <h3>Unnamed section</h3>
-You can comment your stuff with <code>/* this */</code>
+You can comment your stuff with <code>// this</code>
 Your session will be automatically stored locally. You can save/share it somewhere by copying the url or pressing export button on the right, which does the same thing.
 
 <h3>Uniforms</h3>
@@ -50,7 +50,7 @@ Both GLSL and HLSL function names are available.
 You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io/issues">https://github.com/twixuss/twixuss.github.io/issues</a>
 
 <h3>TODO</h3>
-* Allow comments in sliders
+* Undo for sliders.
 * Show point on graph closest to mouse?
 * Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs.
 * Should be able to update a graph while the other ones fail to compile? One shader per graph? Harder to reference though.
@@ -566,7 +566,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 if (program !== undefined) {
                     gl.uniform1f(gl.getUniformLocation(program, input.name), slider.valueAsNumber);
                 }
-                input.text.value = `${input.name} = ${slider.valueAsNumber}`;
+                input.text.value = `${input.name} = ${slider.valueAsNumber} ${input.comment}`;
             });
             line.appendChild(slider);
             input.slider = slider;
@@ -707,15 +707,25 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         input.isNamedByUser = false;
         input.tokens = [];
         input.params = [];
-        if (input.text.value.trim() == "") {
+        input.comment = "";
+        
+        let text = input.text.value;
+
+        let commentIndex = text.indexOf("//");
+        if (commentIndex != -1) {
+            input.comment = text.substring(commentIndex);
+            text = text.substring(0, commentIndex);
+        }
+
+        if (text.trim() == "") {
             input.type = 'none';
             input.name = "";
             input.expr = "";
             input.slider.valueAsNumber = 0;
             input.min.value = input.slider.min = -10;
             input.max.value = input.slider.max = +10;
-        } else if (input.text.value.includes("=")) {
-            let [name, value] = input.text.value.split("=").map(s => s.trim());
+        } else if (text.includes("=")) {
+            let [name, value] = text.split("=").map(s => s.trim());
             let nameTokens = tokenize(name);
             input.nameTokens = nameTokens;
             let constant = parseConstant(value);
@@ -748,7 +758,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.type = 'graph';
             input.name = `f${input.index}`;
             input.nameTokens = [input.name];
-            input.expr = input.text.value;
+            input.expr = text;
         }
 
         if (input.type == 'graph' || input.type == 'function') {
