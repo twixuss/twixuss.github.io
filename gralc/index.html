@@ -16,7 +16,7 @@ Type an equation like <code>x*x</code> or <code>x=sin(y)</code> to see it graphe
 If you use both x and y (or vec2 variable named p), the output will show a gradient, which increases in color intensity when the function increases.
 Or you can equate two expressions, like <code>sin(x) = sin(y)</code>. Then the gradients will not be shown, only roots of the equation.
 You can assign an output of a graph to a name by prepending <code>name = </code>, like <code>a = x*x</code>. You can use that name in next graphs.
-Until there is a better way, you can get a derivative of a graph <code>f(x)</code> by doing <code>ddx(f(x))/ddx(x)</code>.
+Until there is a better way, you can get a derivative of graph <code>f</code> by doing <code>ddx(f)/ddx(x)</code>.
 
 <h3>Sliders</h3>
 Type <code>name = number</code> where <code>name</code> is any valid GLSL identifier and <code>number</code> is any integer/float literal.
@@ -36,9 +36,10 @@ Both GLSL and HLSL function names are available.
 <code>clamp01(x)</code>
 <code>sfloor(x, k)</code> - smooth floor (without discontinuities)
 <code>sfrac[t](x, k)</code> - smooth fraction (without discontinuities)
+<code>smoothstepP(a,b,x,d)</code> - parametric smoothstep, constructed out of two <code>pow(x, d)</code> curves. <code>d</code> determines the slope at the middle. Has C1 continuity in the middle and C(d-1) continuity at the edges.
 
 <h3>Constants</h3>
-<code>pi</code> <code>tau</code> <code>phi</code>
+<code>pi</code> <code>tau</code> <code>phi</code> <code>e</code>
 
 <h3>Contact</h3>
 You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io/issues">https://github.com/twixuss/twixuss.github.io/issues</a>
@@ -332,17 +333,17 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
     const cameraWResolution = 0.01;
     updateCameraWText();
-    cameraWSlider.value = cameraWToSlider();
+    cameraWSlider.valueAsNumber = cameraWToSlider();
 
     function cameraWToSlider() { return log10(targetCameraW); }
-    function sliderToCameraW() { return round(exp10(cameraWSlider.value)/cameraWResolution)*cameraWResolution; }
+    function sliderToCameraW() { return round(exp10(cameraWSlider.valueAsNumber)/cameraWResolution)*cameraWResolution; }
     function updateCameraWText() { cameraWText.value = targetCameraW.toFixed(-log10(cameraWResolution)); }
     cameraWText.addEventListener('focus', e => cameraWText.select());
     cameraWText.addEventListener('input', e => {
         const limit = 1000;
-        if (1.0/limit < cameraWText.value && cameraWText.value < limit) {
+        if (1.0/limit < +cameraWText.value && +cameraWText.value < limit) {
             targetCameraW = +cameraWText.value
-            cameraWSlider.value = cameraWToSlider();
+            cameraWSlider.valueAsNumber = cameraWToSlider();
         }
     });
     cameraWSlider.addEventListener('input', e => {
@@ -352,7 +353,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     resetCameraWButton.addEventListener('click', e => {
         targetCameraW = 1;
         updateCameraWText();
-        cameraWSlider.value = cameraWToSlider();
+        cameraWSlider.valueAsNumber = cameraWToSlider();
     });
 
 
@@ -527,9 +528,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 `;
                 ignoreFirstClick = true;
                 selectingColorForInput = input;
-                thicknessSlider.value = input.thickness;
+                thicknessSlider.valueAsNumber = input.thickness;
                 updateThicknessText(input.thickness);
-                opacitySlider.value = input.opacity;
+                opacitySlider.valueAsNumber = input.opacity;
                 updateOpacityText(input.opacity);
 
                 lastClickedShowPicker = showPicker;
@@ -558,9 +559,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             slider.tabIndex = -1;
             slider.addEventListener('input', e => {
                 if (program !== undefined) {
-                    gl.uniform1f(gl.getUniformLocation(program, input.name), slider.value);
+                    gl.uniform1f(gl.getUniformLocation(program, input.name), slider.valueAsNumber);
                 }
-                input.text.value = `${input.name} = ${slider.value}`;
+                input.text.value = `${input.name} = ${slider.valueAsNumber}`;
             });
             line.appendChild(slider);
             input.slider = slider;
@@ -646,25 +647,25 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     thicknessText.addEventListener('focus', e => thicknessText.select());
     thicknessText.addEventListener('input', e => {
-        thicknessSlider.value = clamp(+thicknessText.value, thicknessSlider.min, thicknessSlider.max);
+        thicknessSlider.valueAsNumber = clamp(+thicknessText.value, +thicknessSlider.min, +thicknessSlider.max);
         selectingColorForInput.thickness = +thicknessText.value;
         updateGraphThicknessUniforms();
     });
     thicknessSlider.addEventListener('input', e => {
-        updateThicknessText(+thicknessSlider.value);
-        selectingColorForInput.thickness = thicknessSlider.value;
+        updateThicknessText(thicknessSlider.valueAsNumber);
+        selectingColorForInput.thickness = thicknessSlider.valueAsNumber;
         updateGraphThicknessUniforms();
     });
 
     opacityText.addEventListener('focus', e => opacityText.select());
     opacityText.addEventListener('input', e => {
-        opacitySlider.value = clamp(+opacityText.value, opacitySlider.min, opacitySlider.max);
+        opacitySlider.valueAsNumber = clamp(+opacityText.value, +opacitySlider.min, +opacitySlider.max);
         selectingColorForInput.opacity = +opacityText.value;
         updateGraphOpacityUniforms();
     });
     opacitySlider.addEventListener('input', e => {
-        updateOpacityText(+opacitySlider.value);
-        selectingColorForInput.opacity = opacitySlider.value;
+        updateOpacityText(opacitySlider.valueAsNumber);
+        selectingColorForInput.opacity = opacitySlider.valueAsNumber;
         updateGraphOpacityUniforms();
         updateCssColor(selectingColorForInput);
     });
@@ -704,7 +705,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.type = 'none';
             input.name = "";
             input.expr = "";
-            input.slider.value = 0;
+            input.slider.valueAsNumber = 0;
             input.min.value = input.slider.min = -10;
             input.max.value = input.slider.max = +10;
         } else if (input.text.value.includes("=")) {
@@ -715,12 +716,12 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             if (nameTokens.length == 1 && !isNaN(constant)) {
                 input.type = 'slider';
                 input.name = name;
-                input.slider.value = constant;
+                input.slider.valueAsNumber = constant;
                 input.min.value = input.slider.min = Math.min(input.min.value, constant);
                 input.max.value = input.slider.max = Math.max(input.max.value, constant);
             } else {
                 input.type = 'graph';
-                if (nameTokens.length == 1) {
+                if (nameTokens.length == 1 && isNaN(+name)) {
                     input.name = name;
                     input.expr = value;
                     input.isNamedByUser = true;
@@ -865,8 +866,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             for (let input of inputs) {
                 input.type = loadState(`i${input.index}t`, "");
                 input.color = loadState(`i${input.index}c`, "");
-                input.thickness = loadState(`i${input.index}w`, "");
-                input.opacity = loadState(`i${input.index}o`, "");
+                input.thickness = +loadState(`i${input.index}w`, "");
+                input.opacity = +loadState(`i${input.index}o`, "");
                 input.text.value = loadState(`i${input.index}e`, "");
                 input.min.value = loadState(`i${input.index}a`, "");
                 input.max.value = loadState(`i${input.index}b`, "");
@@ -1187,6 +1188,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             #define pi 3.141592653
             #define tau 6.283185307
             #define phi 1.618033988
+            #define e 2.718281828
 
             #define frac fract
             #define sfrac sfract
@@ -1200,6 +1202,15 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             #define log10(x) (log(x)/log(10.0))
             #define exp10(x) pow(10.0, x)
             #define time iTime
+            #define float2 vec2
+            #define float3 vec3
+            #define float4 vec4
+            #define int2 ivec2
+            #define int3 ivec3
+            #define int4 ivec4
+            #define uint2 uvec2
+            #define uint3 uvec3
+            #define uint4 uvec4
             
             float atan2(float y, float x) { return atan(y, x); }
             vec2 atan2(vec2 y, vec2 x) { return atan(y, x); }
@@ -1231,16 +1242,24 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             float sfloor(float x, float s) {
                 return x - sfract(x, s);
             }
-            float smoothstepP(float a, float b, float x, float d) {
-                x = mapc(x, a, b, 0.0, 1.0);
-                bool upper = x > 0.5;
-                x = upper ? 1.0 - x : x;
-                x *= 2.0;
-                x = pow(x, d);
-                x *= 0.5;
-                x = upper ? 1.0 - x : x;
-                return x;
-            }
+            #define _gt(a, b) (a > b)
+            #define smoothstepP(float, bool, greaterThan) \\
+                float smoothstepP(float a, float b, float x, float d) { \\
+                    x = clamp((x-a)/(b-a), float(0.0), float(1.0)); \\
+                    bool upper = greaterThan(x, float(0.5)); \\
+                    x = mix(x, 1.0 - x, upper); \\
+                    x *= 2.0; \\
+                    x = pow(x, d); \\
+                    x *= 0.5; \\
+                    x = mix(x, 1.0 - x, upper); \\
+                    return x; \\
+                }
+            smoothstepP(float, bool, _gt)
+            smoothstepP(vec2, bvec2, greaterThan)
+            smoothstepP(vec3, bvec3, greaterThan)
+            smoothstepP(vec4, bvec4, greaterThan)
+            #undef smoothstepP
+            #undef _gt
 
 
 
@@ -1263,6 +1282,16 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             #line 1 // No need to constantly update startingLineNumber with this
             ${graphDefinitions}
 
+            vec2 ddxddy(vec2 p) {
+                return vec2(ddx(p.x), ddy(p.y));
+            }
+            float grid(float thickness, vec2 uv, vec2 d) {
+                vec2 a = d * (thickness * 0.5 + 0.5);
+                vec2 b = d * (thickness * 0.5 - 0.5);
+                vec2 t = 1.0 - clamp01((uv-a)/(b-a));
+                return 1.0 - t.x * t.y;
+            }
+
             void main() {
                 outColor = backgroundColor;
 
@@ -1270,15 +1299,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 vec2 uv = (gl_FragCoord.xy - iResolution * 0.5) / iResolution.y * zoom + iCamera.xy;
                 uv.x *= iCamera.w;
 
-                float gridScale2 = pow(10.0, -(floor(log10(zoom * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
-                float gridScale1 = gridScale2 * 10.;
-
-                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.3*smoothstep(max(1e-10, fwidth(uv.x*gridScale1))*1.0, 0.0, abs(fract(uv.x*gridScale1+0.5)-0.5)));
-                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.3*smoothstep(max(1e-10, fwidth(uv.y*gridScale1))*1.0, 0.0, abs(fract(uv.y*gridScale1+0.5)-0.5)));
-                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.6*smoothstep(max(1e-10, fwidth(uv.x*gridScale2))*2.0, 0.0, abs(fract(uv.x*gridScale2+0.5)-0.5)));
-                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.6*smoothstep(max(1e-10, fwidth(uv.y*gridScale2))*2.0, 0.0, abs(fract(uv.y*gridScale2+0.5)-0.5)));
-                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*1.0*smoothstep(max(1e-10, fwidth(uv.x))*2.0, 0.0, abs(uv.x)));
-                outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*1.0*smoothstep(max(1e-10, fwidth(uv.y))*2.0, 0.0, abs(uv.y)));
+                {
+                    float gridScale2 = pow(10.0, -(floor(log10(zoom * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
+                    float gridScale1 = gridScale2 * 10.;
+                    
+                    outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.3*grid(1.0, abs(fract(uv*gridScale1+0.5)-0.5), ddxddy(uv*gridScale1)));
+                    outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.6*grid(2.0, abs(fract(uv*gridScale2+0.5)-0.5), ddxddy(uv*gridScale2)));
+                    outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*1.0*grid(2.0, abs(uv), max(vec2(1e-10), ddxddy(uv))));
+                }
                 
                 ${graphCode}
             }
@@ -1290,7 +1318,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             console.log(reportString);
 
             let reportLines = reportString.split("\n");
-            reportLines = reportLines.splice(0, reportLines.length - 1); // Remove trailing line that consists only of \0
+            reportLines.pop(); // Remove trailing line that consists only of \0
             //console.log("reportLines", reportLines);
 
             const allReports = reportLines.map(l => {
@@ -1378,7 +1406,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             if (input.type == 'graph') {
             } else if (input.type == 'slider') {
                 if (program !== undefined) {
-                    gl.uniform1f(gl.getUniformLocation(program, input.name), input.slider.value);
+                    gl.uniform1f(gl.getUniformLocation(program, input.name), input.slider.valueAsNumber);
                 }
             }
         }
