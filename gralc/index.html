@@ -45,7 +45,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
 <h3>TODO</h3>
 * Graph parameters, e.g. <code>f(x,a,b) = x*a + b</code>
-* Dependency ordering. Allow upper graphs reference lower ones
 * Show point on graph closest to mouse?
 * Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs.
 * Should be able to update a graph while the other ones fail to compile? One shader per graph? Harder to reference though.
@@ -700,6 +699,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     function updateInput(input) {
         input.showFract = true;
         input.isNamedByUser = false;
+        input.tokens = [];
         if (input.text.value.trim() == "") {
             input.type = 'none';
             input.name = "";
@@ -735,6 +735,10 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.name = `f${input.index}`;
             input.nameTokens = [input.name];
             input.expr = input.text.value;
+        }
+
+        if (input.type == 'graph') {
+            input.tokens = tokenize(input.expr);
         }
 
         if (input.type == 'none') {
@@ -912,10 +916,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         }
 
         // Compute dependencies
-        for (let i = 0; i < inputs.length; ++i) {
-            let input = inputs[i];
+        for (let input of inputs) {
             if (input.type == 'graph') {
-                input.tokens = tokenize(input.expr);
                 input.processedExpr = input.tokens.join("");
                 input.dependsOnX = false;
                 input.dependsOnY = false;
@@ -930,9 +932,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     if (input.nameTokens.length > 1) { input.dependsOnX = true; input.dependsOnY = true; }
                 }
             }
+            input.dependencies = [];
         }
-        for (let i = 0; i < inputs.length; ++i) {
-            let input = inputs[i];
+        for (let input of inputs) {
             if (input.type == 'graph') {
                 for (let token of input.tokens) {
                     const found = inputs.find(other => other.type == 'graph' && other.name != "x" && other.name != "y" && other.name == token);
@@ -945,8 +947,126 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 if (!input.dependsOnX && !input.dependsOnY) {
                     input.dependsOnX = true;
                 }
+
+                if (input.nameTokens.length == 1 && input.name != "x" && input.name != "y") {
+                    if (input.tokens.includes(input.name)) {
+                        input.message.value = "Can't reference itself";
+                        input.message.hidden = false;
+                        return;
+                    }
+                }
+            }
+            
+
+            if (input.type == 'graph' || input.type == 'slider') {
+                if (input.nameTokens.length == 1) {
+                    for (let other of inputs) {
+                        if (input === other)
+                            continue;
+
+                        if (other.type == 'graph') {
+                            if (other.nameTokens.includes(input.name) || other.tokens.includes(input.name)) {
+                                other.dependencies.push(input);
+                            }
+                        }
+                    }
+                }
             }
         }
+
+        
+		// Find dependency cycles and reorder inputs
+        let reorderedInputs = [];
+        {
+			//type VertexState = 'none' | 'visited' | 'finished';
+			//struct Vertex {
+			//	state: VertexState,
+			//	parent: Input;
+			//	pointees: Input[];
+			//};
+
+			let vertices = new Map();
+
+            function getOrInsertVertex(key) {
+                if (vertices.has(key)) {
+                    return vertices.get(key);
+                } else {
+                    let val = {
+                        pointees: [],
+                        parent: undefined,
+                        state: 'none',
+                    };
+                    vertices.set(key, val);
+                    return val;
+                }
+            }
+
+			function add_edge(from, to) {
+                getOrInsertVertex(from).pointees.push(to);
+			}
+
+			for (let dependency of inputs) {
+				let dependants = [];
+				for (let entry of inputs) {
+					if (entry.dependencies.includes(dependency))
+						dependants.push(entry);
+				}
+				for (let dependant of dependants) {
+					add_edge(dependant, dependency);
+				}
+			}
+
+			let cycle = [];
+			let cycles = [];
+
+			function dfs(u) {
+				getOrInsertVertex(u).state = 'visited';
+				for (let v of getOrInsertVertex(u).pointees) {
+					switch (getOrInsertVertex(v).state) {
+						case 'none': {
+							getOrInsertVertex(v).parent = u;
+							dfs(v);
+							break;
+						}
+						case 'visited': {
+							// cycle found, backtrack to find vertices in cycle
+							let p = u;
+							cycle.push(v);
+							while (p !== v) {
+								cycle.push(p);
+								p = getOrInsertVertex(p).parent;
+							}
+							cycles.push(cycle.reverse());
+							cycle = [];
+							break;
+						}
+					}
+				}
+				getOrInsertVertex(u).state = 'finished';
+                reorderedInputs.push(u);
+			}
+
+			for (let entry of inputs) {
+				if (getOrInsertVertex(entry).state == 'none') {
+					dfs(entry);
+				}
+			}
+
+            for (let cycle of cycles) {
+                let message = "Cycles not allowed: " + cycle[cycle.length-1].name;
+                for (let input of cycle) {
+                    message += " -> " + input.name;
+                }
+                for (let input of cycle) {
+                    input.message.value = message;
+                    input.message.hidden = false;
+                }
+            }            
+
+			if (cycles.length) {
+                return;
+            }
+		}
 
         const vertexShaderSource = `#version 300 es
             precision highp float;
@@ -967,10 +1087,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         let graphCode = "";
         let sliderUniformDefinitions = "";
 
-        for (let i = 0; i < inputs.length; ++i) {
-            let input = inputs[i];
+        for (let input of reorderedInputs) {
             if (input.type == 'graph') {
-
                 graphDefinitions += `
                     float eval_${input.name}(vec2 p) {
                         float x = p.x;
@@ -1055,7 +1173,10 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         }
                     }`;
                 }
-            } else if (input.type == 'slider') {
+            }
+        }
+        for (let input of inputs) {
+            if (input.type == 'slider') {
                 sliderUniformDefinitions += `uniform float ${input.name};\n`;
             }
         }
@@ -1202,7 +1323,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
                 let foundInput;
                 let currentGraphIndex = 0;
-                for (let input of inputs) {
+                for (let input of reorderedInputs) {
                     if (input.type == 'graph') {
                         if (currentGraphIndex == graphIndex) {
                             foundInput = input;
