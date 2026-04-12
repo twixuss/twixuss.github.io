@@ -14,12 +14,17 @@
 <h3>Graphs</h3>
 Type an equation like <code>x*x</code> or <code>x=sin(y)</code> to see it graphed on a corresponding axis.
 If you use both x and y (or vec2 variable named p), the output will show a gradient, which increases in color intensity when the function increases.
-Or you can equate two expressions, like <code>sin(x) = sin(y)</code>. Then the gradients will not be shown, only roots of the equation.
+Or you can equate two expressions, like <code>(sin(x) = sin(y))</code> (parens are needed so you don't create new `sin` function, which would conflict with the built-in). Then the gradients will not be shown, only roots of the equation.
 You can assign an output of a graph to a name by prepending <code>name = </code>, like <code>a = x*x</code>. You can use that name in next graphs.
+You can create functions by appending a list of parameters to a graph's name, e.g. <code>f(x,a,b) = x*a + b</code>.
 Until there is a better way, you can get a derivative of graph <code>f</code> by doing <code>ddx(f)/ddx(x)</code>.
 
 <h3>Sliders</h3>
 Type <code>name = number</code> where <code>name</code> is any valid GLSL identifier and <code>number</code> is any integer/float literal.
+
+<h3>Unnamed section</h3>
+You can comment your stuff with <code>/* this */</code>
+Your session will be automatically stored locally. You can save/share it somewhere by copying the url or pressing export button on the right, which does the same thing.
 
 <h3>Uniforms</h3>
 <code>iCamera.xy</code> - Camera position: center of view in graph coordinates
@@ -45,6 +50,7 @@ Both GLSL and HLSL function names are available.
 You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io/issues">https://github.com/twixuss/twixuss.github.io/issues</a>
 
 <h3>TODO</h3>
+* Allow comments in sliders
 * Show point on graph closest to mouse?
 * Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs.
 * Should be able to update a graph while the other ones fail to compile? One shader per graph? Harder to reference though.
@@ -720,17 +726,19 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 input.min.value = input.slider.min = Math.min(input.min.value, constant);
                 input.max.value = input.slider.max = Math.max(input.max.value, constant);
             } else {
-                input.type = 'graph';
                 if (nameTokens.length == 1 && isNaN(+name)) {
+                    input.type = 'graph';
                     input.name = name;
                     input.expr = value;
                     input.isNamedByUser = true;
                 } else if (nameTokens[1] === "(" && nameTokens[nameTokens.length-1] === ")") {
+                    input.type = 'function';
                     input.name = nameTokens[0];
                     input.params = nameTokens.splice(2, nameTokens.length-3).filter(t => t !== ",");
                     input.expr = value;
                     input.isNamedByUser = true;
                 } else {
+                    input.type = 'graph';
                     input.name = `f${input.index}`;
                     input.expr = `(${name})-(${value})`;
                     input.showFract = false;
@@ -743,8 +751,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.expr = input.text.value;
         }
 
-        if (input.type == 'graph') {
+        if (input.type == 'graph' || input.type == 'function') {
             input.tokens = tokenize(input.expr);
+            input.processedExpr = input.tokens.join("");
         }
 
         if (input.type == 'none') {
@@ -762,6 +771,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.slider.hidden = false;
             input.min.hidden = false;
             input.max.hidden = false;
+        } else if (input.type == 'function') {
+            input.showPicker.hidden = true;
+            input.slider.hidden = true;
+            input.min.hidden = true;
+            input.max.hidden = true;
         }
 
         needToRecompile = true;
@@ -801,6 +815,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 write(`i${input.index}e`, input.text.value);
                 write(`i${input.index}a`, input.min.value);
                 write(`i${input.index}b`, input.max.value);
+            } else if (input.type == 'function') {
+                write(`i${input.index}t`, input.type)
+                write(`i${input.index}e`, input.text.value);
             }
         }
 
@@ -924,20 +941,17 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         // Compute dependencies
         for (let input of inputs) {
             if (input.type == 'graph') {
-                input.processedExpr = input.tokens.join("");
                 input.dependsOnX = false;
                 input.dependsOnY = false;
-                if (!input.params.length) {
-                    if (input.name == "x") {
-                        input.dependsOnY = true;
-                    } else if (input.name == "y") {
-                        input.dependsOnX = true;
-                    } else {
-                        if (input.tokens.includes('x')) input.dependsOnX = true;
-                        if (input.tokens.includes('y')) input.dependsOnY = true;
-                        if (input.tokens.includes('p')) { input.dependsOnX = true; input.dependsOnY = true; }
-                        if (input.nameTokens.length > 1) { input.dependsOnX = true; input.dependsOnY = true; }
-                    }
+                if (input.name == "x") {
+                    input.dependsOnY = true;
+                } else if (input.name == "y") {
+                    input.dependsOnX = true;
+                } else {
+                    if (input.tokens.includes('x')) input.dependsOnX = true;
+                    if (input.tokens.includes('y')) input.dependsOnY = true;
+                    if (input.tokens.includes('p')) { input.dependsOnX = true; input.dependsOnY = true; }
+                    if (input.nameTokens.length > 1) { input.dependsOnX = true; input.dependsOnY = true; }
                 }
             }
             input.dependencies = [];
@@ -1097,22 +1111,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
         for (let input of reorderedInputs) {
             if (input.type == 'graph') {
-                if (input.params.length) {
-                    graphDefinitions += `
-                        float ${input.name}(${input.params.map(p => "float " + p).join(", ")}) {
-                            return ${input.processedExpr};
-                        }
-                    `.replace(/\s+/g, " ") + "\n";
-                } else {
-                    graphDefinitions += `
-                        float eval_${input.name}(vec2 p) {
-                            float x = p.x;
-                            float y = p.y;
-                            return ${input.processedExpr};
-                        }
-                        float ${input.name};
-                    `.replace(/\s+/g, " ") + "\n";
-                }
+                graphDefinitions += `
+                    float eval_${input.name}(vec2 p) {
+                        float x = p.x;
+                        float y = p.y;
+                        return ${input.processedExpr};
+                    }
+                    float ${input.name};
+                `.replace(/\s+/g, " ") + "\n";
 
                 let visExpr;
                 let isZ = false;
@@ -1127,71 +1133,75 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     visExpr = input.name;
                 }
 
-                if (!input.params.length) {
-                    if (isZ) {
-                        let fractCode = "";
-                        if (input.showFract) {
-                            fractCode = `
-                                #if 0
-                                // Very expensive normalization. If it is needed, shoud not do it here, calculate once on cpu.
-                                vec2 _minmax = vec2(1e30, -1e30);
-                                for (float _y = 0.0f; _y <= 1.0f; _y += 0.25f) {
-                                for (float _x = 0.0f; _x <= 1.0f; _x += 0.25f) {
-                                    float _f = eval_${input.name}((vec2(_x,_y) - 0.5) * iResolution / iResolution.y * _zoom + iCamera.xy);
-                                    _minmax.x = min(_minmax.x, _f);
-                                    _minmax.y = max(_minmax.y, _f);
-                                }
-                                }
-                                float _m = (_r - _minmax.x) / (_minmax.y - _minmax.x);
-                                #else
-                                //float m = frac(r);
-                                float _m = sfrac(_r, max(1e-10, length(vec2(dFdx(_r), dFdy(_r)))));
-                                #endif
-
-                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _m * (0.5 - fract(floor(_r*0.1)*0.5)*0.25));
-                            `;
-                        }
-                        graphCode += `
-                            ${input.name} = eval_${input.name}(_uv);
-                            {
-                                float _r = ${visExpr};
-                                vec4 _c = _graph_colors[${input.index}];
-                                _c.w *= _graph_opacity[${input.index}];
-
-                                ${fractCode};
-                                
-                                float _d = max(1e-10, length(vec2(dFdx(_r), dFdy(_r))));
-                                float _thick = _graph_thickness[${input.index}];
-                                float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
-                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
+                if (isZ) {
+                    let fractCode = "";
+                    if (input.showFract) {
+                        fractCode = `
+                            #if 0
+                            // Very expensive normalization. If it is needed, shoud not do it here, calculate once on cpu.
+                            vec2 _minmax = vec2(1e30, -1e30);
+                            for (float _y = 0.0f; _y <= 1.0f; _y += 0.25f) {
+                            for (float _x = 0.0f; _x <= 1.0f; _x += 0.25f) {
+                                float _f = eval_${input.name}((vec2(_x,_y) - 0.5) * iResolution / iResolution.y * _zoom + iCamera.xy);
+                                _minmax.x = min(_minmax.x, _f);
+                                _minmax.y = max(_minmax.y, _f);
                             }
+                            }
+                            float _m = (_r - _minmax.x) / (_minmax.y - _minmax.x);
+                            #else
+                            //float m = frac(r);
+                            float _m = sfrac(_r, max(1e-10, length(vec2(dFdx(_r), dFdy(_r)))));
+                            #endif
+
+                            _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _m * (0.5 - fract(floor(_r*0.1)*0.5)*0.25));
                         `;
-                    } else {
-                        graphCode += `
+                    }
+                    graphCode += `
                         ${input.name} = eval_${input.name}(_uv);
                         {
                             float _r = ${visExpr};
-                            if (!isnan(_r) && abs(_r)<1e20) {
-                                vec2 _vd = vec2(dFdx(_r), dFdy(_r));
-                                float _d = max(length(_vd), 1e-10);
-                                
-                                
-                                //if (_activeIndex == ${input.index}) {
-                                //    float _thick = _graph_thickness[${input.index}] + 1.0;
-                                //    float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
-                                //    vec4 _c = _activeColor;
-                                //    _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
-                                //}
+                            vec4 _c = _graph_colors[${input.index}];
+                            _c.w *= _graph_opacity[${input.index}];
 
-                                float _thick = _graph_thickness[${input.index}];
-                                float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
-                                vec4 _c = _graph_colors[${input.index}];
-                                _c.w *= _graph_opacity[${input.index}];
-                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
-                            }
-                        }`;
-                    }
+                            ${fractCode};
+                            
+                            float _d = max(1e-10, length(vec2(dFdx(_r), dFdy(_r))));
+                            float _thick = _graph_thickness[${input.index}];
+                            float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
+                            _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
+                        }
+                    `;
+                } else {
+                    graphCode += `
+                    ${input.name} = eval_${input.name}(_uv);
+                    {
+                        float _r = ${visExpr};
+                        if (!isnan(_r) && abs(_r)<1e20) {
+                            vec2 _vd = vec2(dFdx(_r), dFdy(_r));
+                            float _d = max(length(_vd), 1e-10);
+                            
+                            
+                            //if (_activeIndex == ${input.index}) {
+                            //    float _thick = _graph_thickness[${input.index}] + 1.0;
+                            //    float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
+                            //    vec4 _c = _activeColor;
+                            //    _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
+                            //}
+
+                            float _thick = _graph_thickness[${input.index}];
+                            float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
+                            vec4 _c = _graph_colors[${input.index}];
+                            _c.w *= _graph_opacity[${input.index}];
+                            _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
+                        }
+                    }`;
                 }
+            } else if (input.type == 'function') {
+                graphDefinitions += `
+                    float ${input.name}(${input.params.map(p => "float " + p).join(", ")}) {
+                        return ${input.processedExpr};
+                    }
+                `.replace(/\s+/g, " ") + "\n";
             }
         }
         for (let input of inputs) {
@@ -1577,7 +1587,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         });
     }
 
-    setupExample(example1Button, "cx=0;cy=0;cz=4;cw=1;i0t=graph;i0c=%23f44f;i0w=2;i0o=1;i0e=pow(t%2C%20x);i1t=slider;i1e=t%3D1.7;i1a=0;i1b=2;i2t=graph;i2c=%2344ff;i2w=2;i2o=1;i2e=sin(x*a%20%2B%20iTime);i3t=slider;i3e=a%20%3D%200.711;i3a=-10;i3b=10;i4t=graph;i4c=%234f4f;i4w=2;i4o=0.25;i4e=sin(x)%3Dsin(y);");
+    setupExample(example1Button, "cx=0;cy=0;cz=4;cw=1;i0t=graph;i0c=%23f44f;i0w=2;i0o=1;i0e=pow(t%2C%20x);i1t=slider;i1e=t%3D1.7;i1a=0;i1b=2;i2t=graph;i2c=%2344ff;i2w=2;i2o=1;i2e=sin(x*a%20%2B%20iTime);i3t=slider;i3e=a%20%3D%200.711;i3a=-10;i3b=10;i4t=graph;i4c=%234f4f;i4w=2;i4o=0.25;i4e=(sin(x))%3Dsin(y)%20%2F*%20Avoid%20defining%20new%20%60sin%60%20by%20wrapping%20in%20parens%20*%2F;");
     setupExample(example2Button, "cx=0;cy=0;cz=3;cw=1;i0t=graph;i0c=%23f44f;i0w=2;i0e=length(p)-iTime*0.5;i1t=graph;i1c=%234f4f;i1w=2;i1e=atan2(p)%2Ftau*8%2BiTime*0.5;");
     setupExample(resetStateButton, "cx=0;cy=0;cz=3;cw=1;");
 
