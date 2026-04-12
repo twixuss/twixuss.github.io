@@ -45,7 +45,6 @@ Both GLSL and HLSL function names are available.
 You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io/issues">https://github.com/twixuss/twixuss.github.io/issues</a>
 
 <h3>TODO</h3>
-* Graph parameters, e.g. <code>f(x,a,b) = x*a + b</code>
 * Show point on graph closest to mouse?
 * Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs.
 * Should be able to update a graph while the other ones fail to compile? One shader per graph? Harder to reference though.
@@ -464,7 +463,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     function updateGraphColorsUniforms() {
         const colors = inputs.map((i) => colorStringTo4Floats(i.color)).flat();
         if (program !== undefined) {
-            gl.uniform4fv(gl.getUniformLocation(program, "graph_colors"), colors);
+            gl.uniform4fv(gl.getUniformLocation(program, "_graph_colors"), colors);
         }
     }
     function styleForColor(color) {
@@ -701,6 +700,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         input.showFract = true;
         input.isNamedByUser = false;
         input.tokens = [];
+        input.params = [];
         if (input.text.value.trim() == "") {
             input.type = 'none';
             input.name = "";
@@ -723,6 +723,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 input.type = 'graph';
                 if (nameTokens.length == 1 && isNaN(+name)) {
                     input.name = name;
+                    input.expr = value;
+                    input.isNamedByUser = true;
+                } else if (nameTokens[1] === "(" && nameTokens[nameTokens.length-1] === ")") {
+                    input.name = nameTokens[0];
+                    input.params = nameTokens.splice(2, nameTokens.length-3).filter(t => t !== ",");
                     input.expr = value;
                     input.isNamedByUser = true;
                 } else {
@@ -896,13 +901,13 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     function updateGraphThicknessUniforms() {
         const thickness = inputs.map((i) => i.thickness);
         if (program !== undefined) {
-            gl.uniform1fv(gl.getUniformLocation(program, "graph_thickness"), thickness);
+            gl.uniform1fv(gl.getUniformLocation(program, "_graph_thickness"), thickness);
         }
     }
     function updateGraphOpacityUniforms() {
         const opacity = inputs.map((i) => i.opacity);
         if (program !== undefined) {
-            gl.uniform1fv(gl.getUniformLocation(program, "graph_opacity"), opacity);
+            gl.uniform1fv(gl.getUniformLocation(program, "_graph_opacity"), opacity);
         }
     }
 
@@ -922,15 +927,17 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 input.processedExpr = input.tokens.join("");
                 input.dependsOnX = false;
                 input.dependsOnY = false;
-                if (input.name == "x") {
-                    input.dependsOnY = true;
-                } else if (input.name == "y") {
-                    input.dependsOnX = true;
-                } else {
-                    if (input.tokens.includes('x')) input.dependsOnX = true;
-                    if (input.tokens.includes('y')) input.dependsOnY = true;
-                    if (input.tokens.includes('p')) { input.dependsOnX = true; input.dependsOnY = true; }
-                    if (input.nameTokens.length > 1) { input.dependsOnX = true; input.dependsOnY = true; }
+                if (!input.params.length) {
+                    if (input.name == "x") {
+                        input.dependsOnY = true;
+                    } else if (input.name == "y") {
+                        input.dependsOnX = true;
+                    } else {
+                        if (input.tokens.includes('x')) input.dependsOnX = true;
+                        if (input.tokens.includes('y')) input.dependsOnY = true;
+                        if (input.tokens.includes('p')) { input.dependsOnX = true; input.dependsOnY = true; }
+                        if (input.nameTokens.length > 1) { input.dependsOnX = true; input.dependsOnY = true; }
+                    }
                 }
             }
             input.dependencies = [];
@@ -1090,14 +1097,22 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
         for (let input of reorderedInputs) {
             if (input.type == 'graph') {
-                graphDefinitions += `
-                    float eval_${input.name}(vec2 p) {
-                        float x = p.x;
-                        float y = p.y;
-                        return ${input.processedExpr};
-                    }
-                    float ${input.name};
-                `.replace(/\s+/g, " ") + "\n";
+                if (input.params.length) {
+                    graphDefinitions += `
+                        float ${input.name}(${input.params.map(p => "float " + p).join(", ")}) {
+                            return ${input.processedExpr};
+                        }
+                    `.replace(/\s+/g, " ") + "\n";
+                } else {
+                    graphDefinitions += `
+                        float eval_${input.name}(vec2 p) {
+                            float x = p.x;
+                            float y = p.y;
+                            return ${input.processedExpr};
+                        }
+                        float ${input.name};
+                    `.replace(/\s+/g, " ") + "\n";
+                }
 
                 let visExpr;
                 let isZ = false;
@@ -1105,74 +1120,77 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     visExpr = input.name;
                     isZ = true;
                 } else if (input.dependsOnY) {
-                    visExpr = `uv.x - (${input.name})`;
+                    visExpr = `_uv.x - (${input.name})`;
                 } else if (input.dependsOnX) {
-                    visExpr = `uv.y - (${input.name})`;
+                    visExpr = `_uv.y - (${input.name})`;
                 } else {
                     visExpr = input.name;
                 }
 
-                if (isZ) {
-                    let fractCode = "";
-                    if (input.showFract) {
-                        fractCode = `
-                            #if 0
-                            // Very expensive normalization. If it is needed, shoud not do it here, calculate once on cpu.
-                            vec2 minmax = vec2(1e30, -1e30);
-                            for (float y = 0.0f; y <= 1.0f; y += 0.25f) {
-                            for (float x = 0.0f; x <= 1.0f; x += 0.25f) {
-                                float f = eval_${input.name}((vec2(x,y) - 0.5) * iResolution / iResolution.y * zoom + iCamera.xy);
-                                minmax.x = min(minmax.x, f);
-                                minmax.y = max(minmax.y, f);
-                            }
-                            }
-                            float m = (r - minmax.x) / (minmax.y - minmax.x);
-                            #else
-                            //float m = frac(r);
-                            float m = sfrac(r, max(1e-10, length(vec2(dFdx(r), dFdy(r)))));
-                            #endif
+                if (!input.params.length) {
+                    if (isZ) {
+                        let fractCode = "";
+                        if (input.showFract) {
+                            fractCode = `
+                                #if 0
+                                // Very expensive normalization. If it is needed, shoud not do it here, calculate once on cpu.
+                                vec2 _minmax = vec2(1e30, -1e30);
+                                for (float _y = 0.0f; _y <= 1.0f; _y += 0.25f) {
+                                for (float _x = 0.0f; _x <= 1.0f; _x += 0.25f) {
+                                    float _f = eval_${input.name}((vec2(_x,_y) - 0.5) * iResolution / iResolution.y * _zoom + iCamera.xy);
+                                    _minmax.x = min(_minmax.x, _f);
+                                    _minmax.y = max(_minmax.y, _f);
+                                }
+                                }
+                                float _m = (_r - _minmax.x) / (_minmax.y - _minmax.x);
+                                #else
+                                //float m = frac(r);
+                                float _m = sfrac(_r, max(1e-10, length(vec2(dFdx(_r), dFdy(_r)))));
+                                #endif
 
-                            outColor.xyz = mix(outColor.xyz, c.xyz, c.w * m * (0.5 - fract(floor(r*0.1)*0.5)*0.25));
-                        `;
-                    }
-                    graphCode += `
-                    ${input.name} = eval_${input.name}(uv);
-                    {
-                        float r = ${visExpr};
-                        vec4 c = graph_colors[${input.index}];
-                        c.w *= graph_opacity[${input.index}];
-
-                        ${fractCode};
-                        
-                        float d = max(1e-10, length(vec2(dFdx(r), dFdy(r))));
-                        float thick = graph_thickness[${input.index}];
-                        float g = mapc(abs(r), d*thick, d*(thick - 1.0), 0.0, 1.0);
-                        outColor.xyz = mix(outColor.xyz, c.xyz, c.w * g);
-                    }`;
-                } else {
-                    graphCode += `
-                    ${input.name} = eval_${input.name}(uv);
-                    {
-                        float r = ${visExpr};
-                        if (!isnan(r) && abs(r)<1e20) {
-                            vec2 vd = vec2(dFdx(r), dFdy(r));
-                            float d = max(length(vd), 1e-10);
-                            
-                            
-                            //if (activeIndex == ${input.index}) {
-                            //    float thick = graph_thickness[${input.index}] + 1.0;
-                            //    float g = mapc(abs(r), d*thick, d*(thick - 1.0), 0.0, 1.0);
-                            //    vec4 c = activeColor;
-                            //    outColor.xyz = mix(outColor.xyz, c.xyz, c.w * g);
-                            //}
-
-                            float thick = graph_thickness[${input.index}];
-                            float g = mapc(abs(r), d*thick, d*(thick - 1.0), 0.0, 1.0);
-                            vec4 c = graph_colors[${input.index}];
-                            c.w *= graph_opacity[${input.index}];
-                            outColor.xyz = mix(outColor.xyz, c.xyz, c.w * g);
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _m * (0.5 - fract(floor(_r*0.1)*0.5)*0.25));
+                            `;
                         }
-                    }`;
+                        graphCode += `
+                            ${input.name} = eval_${input.name}(_uv);
+                            {
+                                float _r = ${visExpr};
+                                vec4 _c = _graph_colors[${input.index}];
+                                _c.w *= _graph_opacity[${input.index}];
+
+                                ${fractCode};
+                                
+                                float _d = max(1e-10, length(vec2(dFdx(_r), dFdy(_r))));
+                                float _thick = _graph_thickness[${input.index}];
+                                float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
+                            }
+                        `;
+                    } else {
+                        graphCode += `
+                        ${input.name} = eval_${input.name}(_uv);
+                        {
+                            float _r = ${visExpr};
+                            if (!isnan(_r) && abs(_r)<1e20) {
+                                vec2 _vd = vec2(dFdx(_r), dFdy(_r));
+                                float _d = max(length(_vd), 1e-10);
+                                
+                                
+                                //if (_activeIndex == ${input.index}) {
+                                //    float _thick = _graph_thickness[${input.index}] + 1.0;
+                                //    float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
+                                //    vec4 _c = _activeColor;
+                                //    _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
+                                //}
+
+                                float _thick = _graph_thickness[${input.index}];
+                                float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
+                                vec4 _c = _graph_colors[${input.index}];
+                                _c.w *= _graph_opacity[${input.index}];
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
+                            }
+                        }`;
+                    }
                 }
             }
         }
@@ -1267,25 +1285,25 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             uniform vec2 iResolution;
             uniform vec4 iCamera;
             uniform float iTime;
-            uniform vec4 backgroundColor;
-            uniform vec4 gridColor;
-            //uniform vec4 activeColor;
+            uniform vec4 _backgroundColor;
+            uniform vec4 _gridColor;
+            //uniform vec4 _activeColor;
             
-            out vec4 outColor;
+            out vec4 _outColor;
             
-            uniform vec4 graph_colors[20];
-            uniform float graph_thickness[20];
-            uniform float graph_opacity[20];
-            //uniform int activeIndex;
+            uniform vec4 _graph_colors[20];
+            uniform float _graph_thickness[20];
+            uniform float _graph_opacity[20];
+            //uniform int _activeIndex;
             ${sliderUniformDefinitions}
 
             #line 1 // No need to constantly update startingLineNumber with this
             ${graphDefinitions}
 
-            vec2 ddxddy(vec2 p) {
+            vec2 _ddxddy(vec2 p) {
                 return vec2(ddx(p.x), ddy(p.y));
             }
-            float grid(float thickness, vec2 uv, vec2 d) {
+            float _grid(float thickness, vec2 uv, vec2 d) {
                 vec2 a = d * (thickness * 0.5 + 0.5);
                 vec2 b = d * (thickness * 0.5 - 0.5);
                 vec2 t = 1.0 - clamp01((uv-a)/(b-a));
@@ -1293,19 +1311,19 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             }
 
             void main() {
-                outColor = backgroundColor;
+                _outColor = _backgroundColor;
 
-                float zoom = exp2(iCamera.z);
-                vec2 uv = (gl_FragCoord.xy - iResolution * 0.5) / iResolution.y * zoom + iCamera.xy;
-                uv.x *= iCamera.w;
+                float _zoom = exp2(iCamera.z);
+                vec2 _uv = (gl_FragCoord.xy - iResolution * 0.5) / iResolution.y * _zoom + iCamera.xy;
+                _uv.x *= iCamera.w;
 
                 {
-                    float gridScale2 = pow(10.0, -(floor(log10(zoom * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
-                    float gridScale1 = gridScale2 * 10.;
+                    float _gridScale2 = pow(10.0, -(floor(log10(_zoom * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
+                    float _gridScale1 = _gridScale2 * 10.;
                     
-                    outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.3*grid(1.0, abs(fract(uv*gridScale1+0.5)-0.5), ddxddy(uv*gridScale1)));
-                    outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*0.6*grid(2.0, abs(fract(uv*gridScale2+0.5)-0.5), ddxddy(uv*gridScale2)));
-                    outColor.xyz = mix(outColor.xyz, gridColor.xyz, gridColor.w*1.0*grid(2.0, abs(uv), max(vec2(1e-10), ddxddy(uv))));
+                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*0.3*_grid(1.0, abs(fract(_uv*_gridScale1+0.5)-0.5), _ddxddy(_uv*_gridScale1)));
+                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*0.6*_grid(2.0, abs(fract(_uv*_gridScale2+0.5)-0.5), _ddxddy(_uv*_gridScale2)));
+                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*1.0*_grid(2.0, abs(_uv), max(vec2(1e-10), _ddxddy(_uv))));
                 }
                 
                 ${graphCode}
@@ -1450,9 +1468,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
     function updateThemeUniforms() {
         if (program !== undefined) {
-            gl.uniform4fv(gl.getUniformLocation(program, "backgroundColor"), colorStringTo4Floats(theme.graphBackground));
-            gl.uniform4fv(gl.getUniformLocation(program, "gridColor"), colorStringTo4Floats(theme.graphGrid));
-            //gl.uniform4fv(gl.getUniformLocation(program, "activeColor"), colorStringTo4Floats(theme.graphActive));
+            gl.uniform4fv(gl.getUniformLocation(program, "_backgroundColor"), colorStringTo4Floats(theme.graphBackground));
+            gl.uniform4fv(gl.getUniformLocation(program, "_gridColor"), colorStringTo4Floats(theme.graphGrid));
+            //gl.uniform4fv(gl.getUniformLocation(program, "_activeColor"), colorStringTo4Floats(theme.graphActive));
         }
     }
     const rules = Array.from(document.styleSheets[0].cssRules);
