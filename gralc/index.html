@@ -55,7 +55,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
   Instead of storing a variable, evaluate the referenced graph every time.
   The reason is derivatives.
 * > < >= <=
-* Button to create slider when undeclared identifier.
 * Work loss prevention.
 * Undo for sliders.
 * Show point on graph closest to mouse?
@@ -262,6 +261,10 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         pointer-events: none;
         cursor: default;
         user-select: none;
+    }
+    .createSliderButton {
+        field-sizing: content;
+        flex: 0;
     }
 
     #colorPicker {
@@ -785,6 +788,22 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.max = max;
         }
         {
+            const createSliderButton = document.createElement("button");
+            createSliderButton.className = "createSliderButton";
+            createSliderButton.tabIndex = -1;
+            createSliderButton.addEventListener(`click`, e => {
+                for (let input of inputs) {
+                    if (input.type == 'none') {
+                        input.text.value = `${createSliderButton.ident} = 1`;
+                        updateInput(input);
+                        break;
+                    }
+                }
+            });
+            line.appendChild(createSliderButton);
+            input.createSliderButton = createSliderButton;
+        }
+        {
             const message = document.createElement("input");
             message.type = "text";
             message.className = "message";
@@ -1149,6 +1168,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         // Hide message reports
         for (let input of inputs) {
             input.message.hidden = true;
+            input.createSliderButton.hidden = true;
         }
 
         // Compute dependencies
@@ -1619,6 +1639,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 if (foundInput) {
                     foundInput.message.value = report.message;
                     foundInput.message.hidden = false;
+
+                    const m = [...report.message.matchAll(/'(.*?)' : undeclared identifier/g)];
+                    if (m.length) {
+                        const ident = m[0][1];
+                        foundInput.createSliderButton.hidden = false;
+                        foundInput.createSliderButton.ident = ident;
+                        foundInput.createSliderButton.innerText = `+${ident}`;
+                    }
                 }
             }
         }
