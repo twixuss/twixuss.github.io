@@ -376,6 +376,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 <script>
     helpPanel.hidden = true;
 
+    let inMemoryStorage;
+    initStorage();
+
     let isDraggingDivider = false;
     let dividerOffset = 0;
 
@@ -993,7 +996,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 } else if (nameTokens[1] === "(" && nameTokens[nameTokens.length-1] === ")") {
                     input.type = 'function';
                     input.name = nameTokens[0];
-                    input.params = nameTokens.toSpliced(2, nameTokens.length-3).filter(t => t !== ",");
+                    input.params = [...nameTokens].splice(2, nameTokens.length-3).filter(t => t !== ",");
                     input.expr = value;
                     input.isNamedByUser = true;
                 } else {
@@ -1920,9 +1923,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         });
     }
 
-    setupExample(example1Button, "cx=0;cy=0;cz=4;cw=1;i0t=graph;i0c=%23f44f;i0w=3;i0o=1;i0e=pow(t%2C%20x);i1t=slider;i1e=t%3D1.7;i1a=0;i1b=2;i2t=graph;i2c=%2344ff;i2w=3;i2o=1;i2e=sin(x*a%20%2B%20iTime);i3t=slider;i3e=a%20%3D%200.711;i3a=-10;i3b=10;i4t=graph;i4c=%234f4f;i4w=3;i4o=0.25;i4e=(sin(x))%3Dsin(y)%20%2F%2F%20Avoid%20defining%20new%20%60sin%60%20by%20wrapping%20in%20parens;");
-    setupExample(example2Button, "cx=0;cy=0;cz=3;cw=1;i0t=graph;i0c=%23f44f;i0w=3;i0o=1;i0e=length(p)-iTime*0.5;i1t=graph;i1c=%234f4f;i1w=3;i1o=1;i1e=atan2(p)%2Ftau*8%2BiTime*0.5;");
-    setupExample(resetStateButton, "cx=0;cy=0;cz=3;cw=1;");
+    setupExample(example1Button, "cy=2;cz=4;i0t=slider;i0e=t%20%3D%202%20;i0a=0;i0b=2;i1t=graph;i1c=%23f44f;i1e=y%20<%20pow(t%2C%20x);i2t=graph;i2c=%2348ff;i2o=0.25;i2e=(sin(x))%20%3D%20sin(y)%20%2F%2F%20Avoid%20defining%20new%20%60sin%60%20by%20wrapping%20in%20parens;i3t=slider;i3e=a%20%3D%202;i4t=function;i4e=f(x)%20%3D%20sin(x*a%20%2B%20iTime);i5t=graph;i5c=%23ff4f;i5e=f(x);i6t=graph;i6c=%234f4f;i6e=f(y);");
+    setupExample(example2Button, "i0t=graph;i0c=%23f44f;i0e=a%20%3D%20length(p)-iTime*0.1;i1t=graph;i1c=%234f4f;i1o=0.65;i1e=b%20%3D%20atan2(p)%2Ftau*8%2BiTime*0.1;i2t=graph;i2c=%23ff4f;i2e=b-sin(a);");
+    setupExample(resetStateButton, "");
 
     helpButton.addEventListener('click', e => {
         helpPanel.hidden ^= 1;
@@ -1932,6 +1935,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     let realTime = 0.0;
     let shaderTime = 0.0;
     let storageWriteTimer = 0.0;
+    let storageFlushTimer = 0.0;
     
     function animate(timestamp) {
         const frameTime = (timestamp && prevTimestamp) ? Math.min((timestamp - prevTimestamp) / 1000, 0.033) : 0.016;
@@ -1962,13 +1966,19 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         if (storageWriteTimer >= 0 && program) {
             storageWriteTimer -= 1;
 
-            // TODO: this is slow? i see stutters every second...
-
             storeAllState();
 
             // TODO:
             // This makes page zoom reset every time.
             window.history.replaceState(null, '', stateToUrlParams());
+        }
+
+        storageFlushTimer += frameTime;
+        if (storageFlushTimer >= 0 && program) {
+            storageFlushTimer -= 10;
+
+            // This is extremely slow, so do it as rarely as reasonable.
+            flushStorage();
         }
 
         let zoomY = exp2(cameraZ);
@@ -2097,16 +2107,26 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     
     animate();
 
+    
+    function initStorage() {
+        inMemoryStorage = {};
+        let json = localStorage.getItem("storage");
+        if (!json) return;
+        inMemoryStorage = JSON.parse(json) || {};
+    }
     function loadState(name, defolt) {
-        let value = localStorage.getItem(name);
-        if (value === null)
+        let value = inMemoryStorage[name];
+        if (value === null || value === undefined)
             value = defolt;
         //console.log(`LOAD ${name} = ${value}`);
         return value;
     }
     function storeState(name, value) {
         //console.log(`SET ${name} = ${value}`);
-        localStorage.setItem(name, value);
+        inMemoryStorage[name] = value;
+    }
+    function flushStorage() {
+        localStorage.setItem("storage", JSON.stringify(inMemoryStorage));
     }
     function resetState() {
         localStorage.clear();
