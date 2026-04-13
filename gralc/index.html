@@ -51,7 +51,6 @@ Both GLSL and HLSL function names are available.
 You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io/issues">https://github.com/twixuss/twixuss.github.io/issues</a>
 
 <h3>TODO</h3>
-* Time speed control.
 * Referencing other graphs should be implemented differently.
   Instead of storing a variable, evaluate the referenced graph every time.
   The reason is derivatives.
@@ -66,11 +65,23 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 * Custom grid divisions.
 * Improve precision. 32-bit floats are not that accurate as I want. Doing more than that would require actually transpiling expressions to work on two floats at once. <a href="https://hal.science/hal-00021443">https://hal.science/hal-00021443</a>
             </div>
-            <div id="graphToolPanel" style="user-select: none;">
-                <span>x scale</span>
-                <input id="cameraWText" type="text">
-                <input id="cameraWSlider" type="range" value="0" min="-1" max="1" step="0.01">
-                <button id="resetCameraWButton">Reset</button>
+            <div id="graphToolPanel">
+                <tool-panel-line id="cameraWLine"   var="targetCameraW" label="x scale"    value="0" min="-1" max="1" step="0.01" shape="exp10"></tool-panel-line>
+                <tool-panel-line id="timeSpeedLine" var="timeSpeed"     label="time speed" value="0" min="-1" max="1" step="0.01" shape="exp10"></tool-panel-line>
+                <!--
+                    <div class="toolPanelLine">
+                        <span class="toolPanelLabel">x scale</span>
+                        <input id="cameraWText" type="text" class="toolPanelText">
+                        <input id="cameraWSlider" type="range" value="0" min="-1" max="1" step="0.01">
+                        <button id="resetCameraWButton">Reset</button>
+                    </div>
+                    <div class="toolPanelLine">
+                        <span class="toolPanelLabel">time speed</span>
+                        <input id="timeSpeedText" type="text" class="toolPanelText">
+                        <input id="timeSpeedSlider" type="range" value="0" min="0" max="2" step="0.01">
+                        <button id="resetTimeSpeedButton">Reset</button>
+                    </div>
+                    -->
             </div>
             <div id="exportPopup" style="display: none;">
                 <span id="popupText" style="flex: 1;"></span>
@@ -316,9 +327,20 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         right: 16px;
         top: 16px;
         padding: 8px;
+        user-select: none;
     }
-    #cameraWText {
-        max-width: 100px;
+    .toolPanelLine {
+        display: flex;
+        flex-direction: row;
+        gap: 4px;
+    }
+    .toolPanelLabel {
+        width: 80px;
+        line-height: 32px;
+        text-align: right;
+    }
+    .toolPanelText {
+        width: 60px;
     }
     #exportPopup {
         position: absolute;
@@ -357,31 +379,89 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     let targetCameraZ = cameraZ;
     let targetCameraW = cameraW;
 
-    const cameraWResolution = 0.01;
-    updateCameraWText();
-    updateCameraWSlider();
+    let timeSpeed = 1;
 
-    function cameraWToSlider() { return log10(targetCameraW); }
-    function sliderToCameraW() { return round(exp10(cameraWSlider.valueAsNumber)/cameraWResolution)*cameraWResolution; }
-    function updateCameraWText() { cameraWText.value = targetCameraW.toFixed(-log10(cameraWResolution)); }
-    function updateCameraWSlider() { cameraWSlider.valueAsNumber = cameraWToSlider(); }
-    cameraWText.addEventListener('focus', e => cameraWText.select());
-    cameraWText.addEventListener('input', e => {
-        const limit = 1000;
-        if (1.0/limit < +cameraWText.value && +cameraWText.value < limit) {
-            targetCameraW = +cameraWText.value
-            updateCameraWSlider();
+    let toolPanelLines = {};
+    class ToolPanelLine extends HTMLElement {
+        constructor() {
+            super();
         }
-    });
-    cameraWSlider.addEventListener('input', e => {
-        targetCameraW = sliderToCameraW();
-        updateCameraWText();
-    });
-    resetCameraWButton.addEventListener('click', e => {
-        targetCameraW = 1;
-        updateCameraWText();
-        updateCameraWSlider();
-    });
+        connectedCallback() {
+            this.className = 'toolPanelLine';
+            {
+                this.label = document.createElement('span');
+                this.label.className = 'toolPanelLabel';
+                this.label.innerText = this.getAttribute("label");
+                this.appendChild(this.label);
+            }
+            {
+                this.text = document.createElement('input');
+                this.text.type = 'text';
+                this.text.className = 'toolPanelText';
+                this.appendChild(this.text);
+            }
+            {
+                this.slider = document.createElement('input');
+                this.slider.type = 'range';
+                this.slider.value = this.getAttribute("value");
+                this.slider.min = this.getAttribute("min");
+                this.slider.max = this.getAttribute("max");
+                this.slider.step = this.getAttribute("step");
+                this.appendChild(this.slider);
+            }
+            {
+                this.resetButton = document.createElement('button');
+                this.resetButton.innerText = 'Reset';
+                this.appendChild(this.resetButton);
+            }
+
+            this.getValue = () => +eval(this.getAttribute('var'));
+            this.setValue = (value) => eval(`${this.getAttribute('var')} = value;`);
+            
+            const res = +this.slider.step;
+
+            switch (this.getAttribute('shape')) {
+                default:
+                case 'exp10': {
+                    this.sliderToValue = (sliderValue) => { return round(exp10(sliderValue)/res)*res; };
+                    this.updateText = () => { this.text.value = this.getValue().toFixed(-log10(res)); };
+                    this.updateSlider = () => { this.slider.valueAsNumber = clamp(log10(this.getValue()), -1e30, 1e30); };
+                    break;
+                }
+            }
+
+            this.updateText();
+            this.updateSlider();
+
+            this.text.addEventListener('focus', e => this.text.select());
+            this.text.addEventListener('input', e => {
+                //const limit = 1000;
+                //if (1.0/limit < +this.text.value && +this.text.value < limit) {
+                    this.setValue(+this.text.value);
+                    this.updateSlider();
+                //}
+            });
+            this.slider.addEventListener('input', e => {
+                this.setValue(this.sliderToValue(this.slider.valueAsNumber));
+                this.updateText();
+            });
+            this.resetButton.addEventListener('click', e => {
+                this.setValue(this.sliderToValue(this.getAttribute('value')));
+                this.updateText();
+                this.updateSlider();
+            });
+
+
+            toolPanelLines[this.id] = this;
+        }
+        updateUI() {
+            this.updateText();
+            this.updateSlider();
+        }
+    }
+    customElements.define('tool-panel-line', ToolPanelLine);
+
+    const cameraWLine = toolPanelLines["cameraWLine"];
 
 
     const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
@@ -1661,8 +1741,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         targetCameraY = 0;
         targetCameraZ = 3;
         targetCameraW = 1;
-        updateCameraWText();
-        updateCameraWSlider();
+        cameraWLine.updateUI();
     });
 
     function setupExample(button, param) {
@@ -1686,13 +1765,15 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     });
 
     let prevTimestamp = document.timeline.currentTime;
-    let time = 0.0;
+    let realTime = 0.0;
+    let shaderTime = 0.0;
     let storageWriteTimer = 0.0;
     
     function animate(timestamp) {
         const frameTime = (timestamp && prevTimestamp) ? Math.min((timestamp - prevTimestamp) / 1000, 0.033) : 0.016;
         prevTimestamp = timestamp;
-        time += frameTime;
+        realTime += frameTime;
+        shaderTime += frameTime * timeSpeed;
         
         gl.viewport(0, 0, canvas.width, canvas.height);
 
@@ -1708,7 +1789,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         if (program !== undefined) {
             gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
             gl.uniform4f(cameraLocation, cameraX, cameraY, cameraZ, cameraW);
-            gl.uniform1f(timeLocation, time);
+            gl.uniform1f(timeLocation, shaderTime);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
         }
 
