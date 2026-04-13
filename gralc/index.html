@@ -54,7 +54,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 * Referencing other graphs should be implemented differently.
   Instead of storing a variable, evaluate the referenced graph every time.
   The reason is derivatives.
-* > < >= <=
 * Work loss prevention.
 * Undo for sliders.
 * Show point on graph closest to mouse?
@@ -897,12 +896,13 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         return +str;
     }
     function updateInput(input) {
-        input.showFract = true;
+        input.showType = 'z';
         input.isNamedByUser = false;
         input.nameTokens = [];
         input.tokens = [];
         input.params = [];
         input.comment = "";
+        input.isInequality = false;
         
         let text = input.text.value;
 
@@ -912,6 +912,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             text = text.substring(0, commentIndex);
         }
 
+        let lt = text.indexOf("<");
+        let gt = text.indexOf(">");
+        let le = text.indexOf("<=");
+        let ge = text.indexOf(">=");
+        
         if (text.trim() == "") {
             input.type = 'none';
             input.name = "";
@@ -919,7 +924,22 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.slider.valueAsNumber = 0;
             input.min.value = input.slider.min = -10;
             input.max.value = input.slider.max = +10;
+        } else if (lt != -1 || gt != -1 || le != -1 || ge != -1) {
+            let tok =
+                le != -1 ? '<=' : // Important to check longer tokens first.
+                ge != -1 ? '>=' :
+                lt != -1 ? '<' :
+                gt != -1 ? '>' :
+                undefined;
+
+            let [lhs, rhs] = text.split(tok).map(s => s.trim());
+            input.type = 'graph';
+            input.name = `f${input.index}`;
+            input.expr = `(${lhs})-(${rhs})`;
+            input.showType = tok;
+            input.isInequality = true;
         } else if (text.includes("=")) {
+            // TODO: rename to lhs and rhs
             let [name, value] = text.split("=").map(s => s.trim());
             let nameTokens = tokenize(name);
             input.nameTokens = nameTokens;
@@ -946,7 +966,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     input.type = 'graph';
                     input.name = `f${input.index}`;
                     input.expr = `(${name})-(${value})`;
-                    input.showFract = false;
+                    input.showType = '=0';
                 }
             }
         } else {
@@ -1185,6 +1205,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     if (input.tokens.includes('y')) input.dependsOnY = true;
                     if (input.tokens.includes('p')) { input.dependsOnX = true; input.dependsOnY = true; }
                     if (input.nameTokens.length > 1) { input.dependsOnX = true; input.dependsOnY = true; }
+                    if (input.isInequality) { input.dependsOnX = true; input.dependsOnY = true; }
                 }
             }
             input.dependencies = [];
@@ -1383,11 +1404,21 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 }
 
                 if (isZ) {
-                    let fractCode = "";
-                    if (input.showFract) {
-                        fractCode = `{
-                            ${computeDerivativeLength('_d')}
+                    graphCode += `{
+                        ${input.name} = eval_${input.name}(_uv);
+                        float _r = ${fieldExpr('_uv', input.name)};
+                        vec4 _c = _graph_colors[${input.index}];
+                        _c.w *= _graph_opacity[${input.index}];
+                        float _thick = _graph_thickness[${input.index}];
                             
+                        ${computeDerivativeLength('_d')}
+                    `;
+                    if (input.isInequality) {
+                        graphCode += `
+                            _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * clamp01(_r / ${input.showType=='<'||input.showType=='<='?'-':'+'}_d) * 0.5);
+                        `;
+                    } else if (input.showType == 'z') {
+                        graphCode += `
                             float _m = sfrac(_r, _d);
 
                             #if 0
@@ -1414,20 +1445,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                             #endif
 
                             _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _m * (1.0 - fract(floor(_r*0.1)*0.5)*0.5));
-                        }`;
+                        `;
                     }
-                    graphCode += `{
-                        ${input.name} = eval_${input.name}(_uv);
-                        float _r = ${fieldExpr('_uv', input.name)};
-                        vec4 _c = _graph_colors[${input.index}];
-                        _c.w *= _graph_opacity[${input.index}];
-
-                        ${fractCode};
-                        
-                        ${computeDerivativeLength('_d')}
-
-                        float _thick = _graph_thickness[${input.index}];
-
+                    graphCode += `
                         _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
                     }`;
                 } else {
