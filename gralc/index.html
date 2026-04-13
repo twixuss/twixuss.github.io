@@ -55,7 +55,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
   Instead of storing a variable, evaluate the referenced graph every time.
   The reason is derivatives.
 * > < >= <=
-* Knob to move inputs up and down.
 * Button to create slider when undeclared identifier.
 * Work loss prevention.
 * Undo for sliders.
@@ -134,6 +133,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         width: 100%;
     }
     #leftPanel, #rightPanel {
+        position: relative;
         flex: 1;
         padding: 2px;
         height: 100%;
@@ -156,6 +156,16 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     .line > * {
         flex: 1;
+    }
+    .knurl {
+        min-width: 16px;
+        max-width: 16px;
+        min-height: 32px;
+        max-height: 32px;
+        border: 1px solid #8884;
+        user-select: none;
+        background-color: #8884;
+        background-size: 16px 16px;
     }
     .showPicker {
         min-width: 32px;
@@ -369,6 +379,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     let panPrevX = 0;
     let panPrevY = 0;
 
+    let draggingInput;
+
     let cameraX = +loadState("cx", 0); // in graph coordinates
     let cameraY = +loadState("cy", 0);
     let cameraZ = +loadState("cz", 3); // graphs window height spans pow(2, cameraZ) graph units.
@@ -509,6 +521,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         }
     }
 
+    let inputSpacer, inputDropIndex;
+
     document.addEventListener('mousemove', e => {
         if (isDraggingDivider) {
             const containerRect = container.getBoundingClientRect();
@@ -533,11 +547,45 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             panPrevX = e.clientX;
             panPrevY = e.clientY;
         }
+        if (draggingInput) {
+            let y = e.clientY + draggingInputOffsetY + leftPanel.scrollTop;
+            draggingInput.line.style = `
+                position: absolute;
+                top: ${y}px;
+                z-index: 1;
+            `;
+            leftPanel.style.overflow = 'none';
+
+            leftPanel.appendChild(inputSpacer);
+            leftPanel.appendChild(draggingInput.line);
+
+            let h = inputSpacer.getBoundingClientRect().height;
+            inputDropIndex = round(y / h);
+            if (inputDropIndex < inputs.length)
+                leftPanel.insertBefore(inputSpacer, leftPanel.children[inputDropIndex]);
+            else
+                leftPanel.appendChild(inputSpacer);
+        }
     });
 
+    let lineToInputMap = new Map();
     document.addEventListener('mouseup', () => {
         isDraggingDivider = false;
         isPanning = false;
+        if (draggingInput) {
+            draggingInput.line.style = '';
+            leftPanel.style.overflow = 'none';
+            leftPanel.insertBefore(draggingInput.line, inputSpacer);
+            leftPanel.appendChild(inputSpacer);
+            inputs = Array.from(leftPanel.children).map(c => lineToInputMap.get(c)).filter(i => !!i);
+            let i = 0;
+            for (let input of inputs) {
+                input.index = i++;
+                updateInput(input);
+                updateCssColor(input);
+            }
+            draggingInput = undefined;
+        }
     });
     window.addEventListener('resize', () => {
         resizeCanvas();
@@ -621,8 +669,20 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         input.thickness = 3.0;
         input.opacity = 1.0;
         const line = document.createElement("div");
+        lineToInputMap.set(line, input);
         input.line = line;
         line.className = "line";
+        {
+            const knurl = document.createElement("div");
+            knurl.className = 'knurl';
+            knurl.addEventListener('mousedown', e => {
+                draggingInput = input;
+                draggingInputOffsetX = input.line.getBoundingClientRect().left - e.clientX;
+                draggingInputOffsetY = input.line.getBoundingClientRect().top - e.clientY;
+            });
+            input.knurl = knurl;
+            line.appendChild(knurl);
+        }
         {
             const showPicker = document.createElement("button");
             showPicker.className = "showPicker";
@@ -736,6 +796,12 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.message = message;
         }
         leftPanel.appendChild(line);
+    }
+
+    {
+        inputSpacer = document.createElement('div');
+        inputSpacer.style = `height: ${inputs[0].line.getBoundingClientRect().height}px; width: 100%;`;
+        leftPanel.appendChild(inputSpacer);
     }
 
     for (let color of colors) {
@@ -854,7 +920,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 } else if (nameTokens[1] === "(" && nameTokens[nameTokens.length-1] === ")") {
                     input.type = 'function';
                     input.name = nameTokens[0];
-                    input.params = nameTokens.splice(2, nameTokens.length-3).filter(t => t !== ",");
+                    input.params = nameTokens.toSpliced(2, nameTokens.length-3).filter(t => t !== ",");
                     input.expr = value;
                     input.isNamedByUser = true;
                 } else {
@@ -1856,7 +1922,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             let rulerText = rulerTexts[i];
             rulerText.style.top = `-1000px`;
         }
-        
+
         canvas.hidden = false;
 
         requestAnimationFrame(animate);
