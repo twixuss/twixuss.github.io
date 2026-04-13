@@ -1015,7 +1015,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
         if (input.type == 'graph' || input.type == 'function') {
             input.tokens = tokenize(input.expr);
-            input.processedExpr = input.tokens.join("");
         }
 
         if (input.type == 'none') {
@@ -1393,6 +1392,24 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             }
 		}
 
+
+        for (let input of inputs) {
+            if (input.type == 'graph' || input.type == 'function') {
+                input.tokens = tokenize(input.expr);
+                let newTokens = [];
+                for (let token of input.tokens) {
+                    let found = inputs.find(other => other.type == 'graph' && other.name == token);
+                    if (found) {
+                        newTokens.push('eval_' + token, '(', 'p', ')');
+                    } else {
+                        newTokens.push(token);
+                    }
+                }
+                input.tokens = newTokens;
+                input.processedExpr = input.tokens.join('');
+            }
+        }
+
         const vertexShaderSource = `#version 300 es
             precision highp float;
             
@@ -1420,7 +1437,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         float y = p.y;
                         return ${input.processedExpr};
                     }
-                    float ${input.name};
                 `.replace(/\s+/g, " ") + "\n";
 
                 let fieldExpr;
@@ -1456,8 +1472,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
                 if (isZ) {
                     graphCode += `{
-                        ${input.name} = eval_${input.name}(_uv);
-                        float _r = ${fieldExpr('_uv', input.name)};
+                        float _e = eval_${input.name}(_uv);
+                        float _r = ${fieldExpr('_uv', '_e')};
                         vec4 _c = _graph_colors[${input.index}];
                         _c.w *= _graph_opacity[${input.index}];
                         float _thick = _graph_thickness[${input.index}];
@@ -1503,8 +1519,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     }`;
                 } else {
                     graphCode += `{
-                        ${input.name} = eval_${input.name}(_uv);
-                        float _r = ${fieldExpr('_uv', input.name)};
+                        float _e = eval_${input.name}(_uv);
+                        float _r = ${fieldExpr('_uv', '_e')};
                         if (!isnan(_r) && abs(_r)<1e20) {
                             ${computeDerivativeLength('_d')}
 
@@ -1914,7 +1930,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     function setupExample(button, param) {
         button.addEventListener('click', e => {
             parseUrlParamIntoState(param);
-            time = 0;
+            realTime = 0;
+            shaderTime = 0;
             for (let input of inputs) {
                 updateInput(input);
                 updateCssColor(input);
@@ -1923,7 +1940,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         });
     }
 
-    setupExample(example1Button, "cy=2;cz=4;i0t=slider;i0e=t%20%3D%202%20;i0a=0;i0b=2;i1t=graph;i1c=%23f44f;i1e=y%20<%20pow(t%2C%20x);i2t=graph;i2c=%2348ff;i2o=0.25;i2e=(sin(x))%20%3D%20sin(y)%20%2F%2F%20Avoid%20defining%20new%20%60sin%60%20by%20wrapping%20in%20parens;i3t=slider;i3e=a%20%3D%202;i4t=function;i4e=f(x)%20%3D%20sin(x*a%20%2B%20iTime);i5t=graph;i5c=%23ff4f;i5e=f(x);i6t=graph;i6c=%234f4f;i6e=f(y);");
+    setupExample(example1Button, "cy=2;cz=4;i0t=slider;i0e=t%20%3D%202%20;i0a=0;i0b=2;i1t=graph;i1c=%23f44f;i1e=y%20<%20pow(t%2C%20x);i2t=graph;i2c=%2348ff;i2o=0.5;i2e=(sin(x))%20%3D%20sin(y)%20%2F%2F%20Avoid%20defining%20new%20%60sin%60%20by%20wrapping%20in%20parens;i3t=slider;i3e=a%20%3D%202;i4t=function;i4e=f(x)%20%3D%20sin(x*a%20%2B%20iTime);i5t=graph;i5c=%23ff4f;i5e=f(x);i6t=graph;i6c=%234f4f;i6e=f(y);");
     setupExample(example2Button, "i0t=graph;i0c=%23f44f;i0e=a%20%3D%20length(p)-iTime*0.1;i1t=graph;i1c=%234f4f;i1o=0.65;i1e=b%20%3D%20atan2(p)%2Ftau*8%2BiTime*0.1;i2t=graph;i2c=%23ff4f;i2e=b-sin(a);");
     setupExample(resetStateButton, "");
 
