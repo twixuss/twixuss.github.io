@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Graphing calculator</title>
+    <title>GRALC - Graphing calculator</title>
 </head>
 <body>
     <div id="container">
@@ -10,21 +10,24 @@
         <div id="divider"></div>
         <div id="rightPanel" style="display: flex; overflow: hidden; flex: 1; position: relative;">
             <canvas id="canvas" hidden="true"></canvas>
-            <div id="helpPanel" hidden="true">
+            <div id="helpPanel">
+<h3>GRALC - Graphing calculator. Made by <a href="https://github.com/twixuss">twixuss</a>.</h3>
+
 <h3>Graphs</h3>
-Type an equation like <code>x*x</code> or <code>x=sin(y)</code> to see it graphed on a corresponding axis.
+In one of the lines on the left, type an equation like <code>x*x</code> or <code>x=sin(y)</code> to see it graphed on a corresponding axis.
 If you use both x and y (or vec2 variable named p), the output will show a gradient, which increases in color intensity when the function increases.
 Or you can equate two expressions, like <code>(sin(x) = sin(y))</code> (parens are needed so you don't create new `sin` function, which would conflict with the built-in). Then the gradients will not be shown, only roots of the equation.
-You can assign an output of a graph to a name by prepending <code>name = </code>, like <code>a = x*x</code>. You can use that name in next graphs.
+You can assign an output of a graph to a name by prepending <code>name = </code>, like <code>a = x*x</code>. You can use that name in other graphs.
 You can create functions by appending a list of parameters to a graph's name, e.g. <code>f(x,a,b) = x*a + b</code>.
 Until there is a better way, you can get a derivative of graph <code>f</code> by doing <code>ddx(f)/ddx(x)</code>.
 
 <h3>Sliders</h3>
 Type <code>name = number</code> where <code>name</code> is any valid GLSL identifier and <code>number</code> is any integer/float literal.
+Instead of typing that, you can first write your graph that references not yet existing slider(s), and then there will be a button that creates the missing slider on click.
 
 <h3>Unnamed section</h3>
 You can comment your stuff with <code>// this</code>
-Your session will be automatically stored locally. You can save/share it somewhere by <s>copying the url or</s> pressing export button on the right, which does the same thing.
+Your session will be automatically stored locally. You can save/share it somewhere by copying the url or pressing export button on the right, which does the same thing.
 Use of identifiers starting with underscore <code>_</code> is not recommended as they might collide with internal variables.
 
 <h3>Uniforms</h3>
@@ -65,20 +68,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             <div id="graphToolPanel">
                 <tool-panel-line id="cameraWLine"   var="targetCameraW" label="x scale"    value="0" min="-1" max="1" step="0.01" shape="exp10"></tool-panel-line>
                 <tool-panel-line id="timeSpeedLine" var="timeSpeed"     label="time speed" value="0" min="-1" max="1" step="0.01" shape="exp10"></tool-panel-line>
-                <!--
-                    <div class="toolPanelLine">
-                        <span class="toolPanelLabel">x scale</span>
-                        <input id="cameraWText" type="text" class="toolPanelText">
-                        <input id="cameraWSlider" type="range" value="0" min="-1" max="1" step="0.01">
-                        <button id="resetCameraWButton">Reset</button>
-                    </div>
-                    <div class="toolPanelLine">
-                        <span class="toolPanelLabel">time speed</span>
-                        <input id="timeSpeedText" type="text" class="toolPanelText">
-                        <input id="timeSpeedSlider" type="range" value="0" min="0" max="2" step="0.01">
-                        <button id="resetTimeSpeedButton">Reset</button>
-                    </div>
-                    -->
             </div>
             <div id="exportPopup" style="display: none;">
                 <span id="popupText" style="flex: 1;"></span>
@@ -374,6 +363,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
 </style>
 <script>
+    helpPanel.hidden = true;
+
     let isDraggingDivider = false;
     let dividerOffset = 0;
 
@@ -895,6 +886,17 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             return NaN;
         return +str;
     }
+    function clearInput(input) {
+        input.type = 'none';
+        input.name = "";
+        input.expr = "";
+        input.slider.valueAsNumber = 0;
+        input.min.value = input.slider.min = -10;
+        input.max.value = input.slider.max = +10;
+        input.color = colors[input.index % (colors.length - 1)];
+        input.thickness = 3;
+        input.opacity = 1;
+    }
     function updateInput(input) {
         input.showType = 'z';
         input.isNamedByUser = false;
@@ -918,12 +920,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         let ge = text.indexOf(">=");
         
         if (text.trim() == "") {
-            input.type = 'none';
-            input.name = "";
-            input.expr = "";
-            input.slider.valueAsNumber = 0;
-            input.min.value = input.slider.min = -10;
-            input.max.value = input.slider.max = +10;
+            clearInput(input);
         } else if (lt != -1 || gt != -1 || le != -1 || ge != -1) {
             let tok =
                 le != -1 ? '<=' : // Important to check longer tokens first.
@@ -1094,8 +1091,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             urlParam = decodeURIComponent(urlParam);
             // Parse from URL
             for (let input of inputs) {
-                input.type = 'none';
                 input.text.value = '';
+                clearInput(input);
             }
             const params = urlParam.split(";");
     
@@ -1871,7 +1868,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
 
     setupExample(example1Button, "cx=0;cy=0;cz=4;cw=1;i0t=graph;i0c=%23f44f;i0w=3;i0o=1;i0e=pow(t%2C%20x);i1t=slider;i1e=t%3D1.7;i1a=0;i1b=2;i2t=graph;i2c=%2344ff;i2w=3;i2o=1;i2e=sin(x*a%20%2B%20iTime);i3t=slider;i3e=a%20%3D%200.711;i3a=-10;i3b=10;i4t=graph;i4c=%234f4f;i4w=3;i4o=0.25;i4e=(sin(x))%3Dsin(y)%20%2F%2F%20Avoid%20defining%20new%20%60sin%60%20by%20wrapping%20in%20parens;");
-    setupExample(example2Button, "cx=0;cy=0;cz=3;cw=1;i0t=graph;i0c=%23f44f;i0w=3;i0e=length(p)-iTime*0.5;i1t=graph;i1c=%234f4f;i1w=3;i1e=atan2(p)%2Ftau*8%2BiTime*0.5;");
+    setupExample(example2Button, "cx=0;cy=0;cz=3;cw=1;i0t=graph;i0c=%23f44f;i0w=3;i0o=1;i0e=length(p)-iTime*0.5;i1t=graph;i1c=%234f4f;i1w=3;i1o=1;i1e=atan2(p)%2Ftau*8%2BiTime*0.5;");
     setupExample(resetStateButton, "cx=0;cy=0;cz=3;cw=1;");
 
     helpButton.addEventListener('click', e => {
