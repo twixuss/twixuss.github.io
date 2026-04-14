@@ -200,7 +200,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         background-color: #252525;
     }
     input[type="range"]::-webkit-slider-thumb {
-        height: 100%;
+        height: 15px;
         aspect-ratio: 1;
         border: none;
         border-radius: 50%;
@@ -210,7 +210,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         -webkit-appearance: none;
     }
     input[type="range"]::-moz-range-thumb {
-        height: 100%;
+        height: 15px;
         aspect-ratio: 1;
         border: none;
         border-radius: 50%;
@@ -374,6 +374,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
 </style>
 <script>
+    "use strict";
     helpPanel.hidden = true;
 
     let inMemoryStorage;
@@ -527,19 +528,23 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         panPrevX = e.clientX;
         panPrevY = e.clientY;
     })
-    canvas.addEventListener('mousewheel', e => {
+    canvas.addEventListener('wheel', e => {
+        console.log('mousewheel', e.wheelDeltaY);
+
+        const deltaY = e.wheelDeltaY / 120.0;
+
         const step = 0.25;
         const pointX =  ((e.clientX - canvas.getBoundingClientRect().left) * window.devicePixelRatio - canvas.width  * 0.5) / canvas.height * exp2(cameraZ) + cameraX;
         const pointY = -((e.clientY - canvas.getBoundingClientRect().top ) * window.devicePixelRatio - canvas.height * 0.5) / canvas.height * exp2(cameraZ) + cameraY;
 
-        const d = e.deltaY * (0.01 * step) * window.devicePixelRatio;
+        const d = deltaY * step * window.devicePixelRatio;
 
-        const t = exp2(d);
+        const t = exp2(-d);
 
         targetCameraX = pointX + (targetCameraX - pointX) * t;
         targetCameraY = pointY + (targetCameraY - pointY) * t;
 
-        targetCameraZ += d;
+        targetCameraZ -= d;
     });
 
     {
