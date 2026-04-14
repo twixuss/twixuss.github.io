@@ -56,9 +56,6 @@ Both GLSL and HLSL function names are available.
 You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io/issues">https://github.com/twixuss/twixuss.github.io/issues</a>
 
 <h3>TODO</h3>
-* Referencing other graphs should be implemented differently.
-  Instead of storing a variable, evaluate the referenced graph every time.
-  The reason is derivatives.
 * Work loss prevention.
 * Undo for sliders.
 * Show point on graph closest to mouse?
@@ -68,15 +65,21 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 * Improve precision. 32-bit floats are not that accurate as I want. Doing more than that would require actually transpiling expressions to work on two floats at once. <a href="https://hal.science/hal-00021443">https://hal.science/hal-00021443</a>
             </div>
             <div id="graphToolPanel">
-                <tool-panel-line id="cameraWLine"   var="targetCameraW" label="X scale"        value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></tool-panel-line>
-                <tool-panel-line id="timeSpeedLine" var="timeSpeed"     label="Time speed"     value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></tool-panel-line>
-                <tool-panel-line id="gridDivisions" var="gridDivisions" label="Grid divisions" value="10" min= "2" max="16" step="1"    shape="linear"></tool-panel-line>
+                <float-input id="cameraWInput"       var="targetCameraW" label="X scale"        value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></float-input>
+                <float-input id="timeSpeedInput"     var="timeSpeed"     label="Time speed"     value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></float-input>
+                <float-input id="gridDivisionsInput" var="gridDivisions" label="Grid divisions" value="10" min= "2" max="16" step="1"    shape="linear"></float-input>
+                <input id="rulersCheckbox" type="checkbox"></input>
+                <label for="rulersCheckbox">Rulers</label>
                 <button onclick="rulerForm='decimal'">Decimal</button>
                 <button onclick="rulerForm='rational'">Rational</button>
                 <button onclick="rulerForm='rational-gcd'">Rational GCD</button>
                 <br>
-                <span id="cursorCoordsText">cursor: <span id="cursorCoordsTextX"></span><span id="cursorCoordsTextY"></span></span>
+                <span id="cursorCoordsText" style="line-height: 32px;">Cursor: <span id="cursorCoordsTextX"></span><span id="cursorCoordsTextY"></span></span>
+                <br>
+                <input id="cursorCoordsOnAxisCheckbox" type="checkbox"></input>
+                <label for="cursorCoordsOnAxisCheckbox">Cursor on axes</label>
             </div>
+            <button id="graphToolPanelHandle">></button>
             <div id="popupPanel" style="display: none;">
                 <span id="popupText" style="flex: 1;"></span>
             </div>
@@ -95,16 +98,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         </div>
     </div>
     <div id="colorPicker">
-        <div class="colorPickerSliderContainer">
-            <div class="colorPickerSliderLabel">Thickness</div>
-            <input id="thicknessText" type="text" class="colorPickerSliderText">
-            <input id="thicknessSlider" type="range" value="2" min="1" max="8" step="0.1" class="colorPickerSlider">
-        </div>
-        <div class="colorPickerSliderContainer">
-            <div class="colorPickerSliderLabel">Opacity</div>
-            <input id="opacityText" type="text" class="colorPickerSliderText">
-            <input id="opacitySlider" type="range" value="1" min="0" max="1" step="0.01" class="colorPickerSlider">
-        </div>
+        <float-input id="thicknessInput" label="Thickness" value="3" min="1" max="8" step="0.1"  shape="linear"></float-input>
+        <float-input id="opacityInput"   label="Opacity"   value="1" min="0" max="1" step="0.01" shape="linear"></float-input>
+        <label for="graphLookInput"><input id="graphLookInput" type="checkbox"></input> Clamp(0,1) instead of Fract</label>
         <div id="colorPickerColorContainer"></div>
     </div>
 </body>
@@ -219,6 +215,39 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         /*specific*/
         margin-top: 0;
     }
+    input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        font-size: 14px;
+
+        position: relative;
+        border: 1px solid;
+        appearance: initial;
+        border-radius: 0;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+        outline: none;
+    }
+
+    input[type="checkbox"]:after {
+        position: absolute;
+        display: block;
+        width: 100%;
+        height: 100%;
+        top: -1px;
+        text-align: center;
+        line-height: 16px;
+        background: transparent;
+        content: "";
+    }
+    input[type="checkbox"]:checked:after {
+        /* ✓ */
+        content: "X";
+    }
+    label {
+        flex: 0;
+        line-height: 32px;
+        user-select: none;
+    }
     .commentCurtain {
         position: absolute;
         background-color: #f00;
@@ -271,23 +300,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         padding: 5px;
         box-shadow: #000 10px 10px 40px;
     }
-    .colorPickerSliderContainer {
-        display: flex;
-        width: 100%;
-        gap: 4px;
-    }
-    .colorPickerSliderLabel {
-        padding: 6px;
-        width: 100px;
-        user-select: none;
-    }
-    .colorPickerSliderText {
-        width: 64px;
-    }
-    .colorPickerSlider {
-        flex: 1;
-        flex-grow: 1;
-    }
     #colorPickerColorContainer {
         display: flex;
         flex-wrap: wrap;
@@ -333,26 +345,33 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     #graphToolPanel {
         position: absolute;
-        right: 16px;
-        top: 16px;
         padding: 8px;
         user-select: none;
+        /* box-shadow: #000 10px 10px 40px; */
     }
-    .toolPanelLine {
+    .floatInputLine {
         display: flex;
         flex-direction: row;
         gap: 4px;
+        height: 32px;
+        margin-bottom: 4px;
+        user-select: none;
     }
-    .toolPanelLabel {
+    .floatInputLabel {
         width: 100px;
         line-height: 32px;
         text-align: right;
     }
-    .toolPanelText {
+    .floatInputText {
         width: 60px;
     }
-    #cursorCoordsTextX, #cursorCoordsTextY {
-        background-color: transparent;
+    .floatInputSlider {
+        flex: 1;
+    }
+    #graphToolPanelHandle {
+        position: absolute;
+        width: 32px;
+        height: 32px;
     }
     #popupPanel {
         position: absolute;
@@ -377,8 +396,180 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     "use strict";
     helpPanel.hidden = true;
 
+    
+    
+    class ToolPanelLine extends HTMLElement {
+        constructor() {
+            super();
+        }
+        connectedCallback() {
+            this.className = 'floatInputLine';
+            {
+                this.label = document.createElement('span');
+                this.label.className = 'floatInputLabel';
+                this.label.innerText = this.getAttribute("label");
+                this.appendChild(this.label);
+            }
+            {
+                this.text = document.createElement('input');
+                this.text.type = 'text';
+                this.text.className = 'floatInputText';
+                this.appendChild(this.text);
+            }
+            {
+                this.slider = document.createElement('input');
+                this.slider.type = 'range';
+                this.slider.className = 'floatInputSlider';
+                this.slider.value = this.getAttribute("value");
+                this.slider.min = this.getAttribute("min");
+                this.slider.max = this.getAttribute("max");
+                this.slider.step = this.getAttribute("step");
+                this.appendChild(this.slider);
+            }
+            {
+                this.resetButton = document.createElement('button');
+                this.resetButton.innerText = '⟳';
+                this.appendChild(this.resetButton);
+            }
+
+            this.getValue = () => +eval(this.getAttribute('var'));
+            this.setValue = (value) => eval(`${this.getAttribute('var')} = value;`);
+
+            switch (this.getAttribute('shape')) {
+                default:
+                case 'linear': {
+                    this.sliderToValue = v => { if (v === undefined) v = this.slider.valueAsNumber; return v; };
+                    this.updateSlider = () => { this.slider.valueAsNumber = clamp(this.getValue(), -1e30, 1e30); };
+                    break;
+                }
+                case 'exp10': {
+                    this.sliderToValue = v => { if (v === undefined) v = this.slider.valueAsNumber; return exp10(v); };
+                    this.updateSlider = () => { this.slider.valueAsNumber = clamp(log10(this.getValue()), -1e30, 1e30); };
+                    break;
+                }
+            }
+
+            const res = +this.slider.step;
+            this.text.value = this.slider.valueAsNumber.toFixed(-log10(res));
+
+            this.text.addEventListener('focus', e => this.text.select());
+            this.text.addEventListener('input', e => {
+                //const limit = 1000;
+                //if (1.0/limit < +this.text.value && +this.text.value < limit) {
+                    this.setValue(+this.text.value);
+                    this.updateSlider();
+                //}
+            });
+            this.slider.addEventListener('input', e => {
+                this.setValue(this.sliderToValue(this.slider.valueAsNumber));
+                this.updateText();
+            });
+            this.resetButton.addEventListener('click', e => {
+                this.setValue(this.sliderToValue(+this.getAttribute('value')));
+                this.updateText();
+                this.updateSlider();
+            });
+
+            initUndo(this.text);
+            initUndo(this.slider);
+        }
+        updateText() {
+            const res = +this.slider.step;
+            this.text.value = this.getValue().toFixed(-log10(res));
+        }
+        updateUI() {
+            this.updateText();
+            this.updateSlider();
+        }
+    }
+    customElements.define('float-input', ToolPanelLine);
+
+
+
     let inMemoryStorage;
     initStorage();
+
+    // This is not it...
+    //let modifiedElements = [];
+    //let modifiedElementsIndex = 0;
+    function pushModification(target, prevValue) {
+        //if (modifiedElementsIndex > 0 && modifiedElements[modifiedElementsIndex-1].target === target) {
+        //    modifiedElements[modifiedElementsIndex-1].newValue = target.value;
+        //} else {
+        //    modifiedElements[modifiedElementsIndex++] = {target, prevValue, newValue: target.value};
+        //}
+        //modifiedElements.splice(modifiedElementsIndex);
+    }
+    function initUndo(element) {
+        if (false) {
+            let previousValue;
+            document.addEventListener('mousedown', e => {
+                if (e.target === element) {
+                    previousValue = e.target.value;
+                }
+            });
+            element.addEventListener('change', e => {
+                let currentValue = e.target.value;
+                // UndoItem undeclared identifier
+                const undoItem = new UndoItem({
+                    label: `Slider "${label}" changed to ${currentValue}`,
+                    undo: () => {
+                        element.value = previousValue;
+                        element.dispatchEvent(new Event('input', { bubbles: true }));
+                        element.dispatchEvent(new Event('change', { bubbles: true }));
+                    },
+                    redo: () => {
+                        element.value = currentValue;
+                        element.dispatchEvent(new Event('input', { bubbles: true }));
+                        element.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                });
+
+                document.undoManager.addItem(undoItem);
+            });
+        }
+        if (true) {
+            //document.addEventListener('mousedown', e => {
+            //    if (e.target === element) {
+            //        console.log('mousedown');
+            //        if (modifiedElementsIndex > 0 && modifiedElements[modifiedElementsIndex-1].target === e.target) {
+            //        } else {
+            //            modifiedElements[modifiedElementsIndex] = {target: e.target, prevValue: e.target.value};
+            //        }
+            //    }
+            //});
+            //element.addEventListener('change', e => {
+            //    console.log('change');
+            //    if (modifiedElementsIndex > 0 && modifiedElements[modifiedElementsIndex-1].target === e.target) {
+            //        modifiedElements[modifiedElementsIndex-1].newValue = e.target.value;
+            //    } else {
+            //        modifiedElements[modifiedElementsIndex++].newValue = e.target.value;
+            //    }
+            //    modifiedElements.splice(modifiedElementsIndex);
+            //});
+        }
+    }
+    //document.addEventListener('keydown', e => {
+    //    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    //        if (modifiedElementsIndex > 0) {
+    //            let m = modifiedElements[--modifiedElementsIndex];
+    //            if (m.target.type == 'range') {
+    //                e.preventDefault();
+    //                m.target.value = m.prevValue;
+    //            }
+    //        }
+    //    }
+    //    
+    //    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+    //        if (modifiedElementsIndex < modifiedElements.length) {
+    //            let m = modifiedElements[modifiedElementsIndex++];
+    //            if (m.target.type == 'range') {
+    //                e.preventDefault();
+    //                m.target.value = m.newValue;
+    //            }
+    //        }
+    //    }
+    //});
 
     let isDraggingDivider = false;
     let dividerOffset = 0;
@@ -388,18 +579,25 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     let panPrevY = 0;
 
     let draggingInput;
+    let draggingInputOffsetX = 0;
+    let draggingInputOffsetY = 0;
 
     let mouseX = 0;
     let mouseY = 0;
 
+    function getGraphLook() {
+        return graphLookInput.checked ? 'clamp' : 'fract';
+    }
+
     const defaultCameraX = 0;
     const defaultCameraY = 0;
     const defaultCameraZ = 3;
-    const defaultCameraW = 1;
-    const defaultTimeSpeed = 1;
-    const defaultGridDivisions = 10;
-    const defaultThickness = 3;
-    const defaultOpacity = 1;
+    const defaultCameraW = cameraWInput.sliderToValue();
+    const defaultTimeSpeed = timeSpeedInput.sliderToValue();
+    const defaultGridDivisions = gridDivisionsInput.sliderToValue();
+    const defaultThickness = thicknessInput.sliderToValue();
+    const defaultOpacity = opacityInput.sliderToValue();
+    const defaultGraphLook = getGraphLook();
     const defaultSliderMin = -10;
     const defaultSliderMax = +10;
     const defaultSliderValue = 0;
@@ -416,95 +614,62 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
     let timeSpeed = +loadState("ts", defaultTimeSpeed);
     let gridDivisions = +loadState("gd", defaultGridDivisions);
-    let rulerForm = 'decimal';
+    let rulerForm = loadState('rf', 'decimal');
+    let cursorRulerType = loadState('crt', 'on-panel');
+    rulersCheckbox.checked = !!loadState("rc", false);
+    cursorCoordsOnAxisCheckbox.checked = !!loadState("ccoac", false);
 
-    let toolPanelLines = {};
-    class ToolPanelLine extends HTMLElement {
-        constructor() {
-            super();
-        }
-        connectedCallback() {
-            this.className = 'toolPanelLine';
-            {
-                this.label = document.createElement('span');
-                this.label.className = 'toolPanelLabel';
-                this.label.innerText = this.getAttribute("label");
-                this.appendChild(this.label);
-            }
-            {
-                this.text = document.createElement('input');
-                this.text.type = 'text';
-                this.text.className = 'toolPanelText';
-                this.appendChild(this.text);
-            }
-            {
-                this.slider = document.createElement('input');
-                this.slider.type = 'range';
-                this.slider.value = this.getAttribute("value");
-                this.slider.min = this.getAttribute("min");
-                this.slider.max = this.getAttribute("max");
-                this.slider.step = this.getAttribute("step");
-                this.appendChild(this.slider);
-            }
-            {
-                this.resetButton = document.createElement('button');
-                this.resetButton.innerText = 'Reset';
-                this.appendChild(this.resetButton);
-            }
-
-            this.getValue = () => +eval(this.getAttribute('var'));
-            this.setValue = (value) => eval(`${this.getAttribute('var')} = value;`);
-
-            switch (this.getAttribute('shape')) {
-                default:
-                case 'linear': {
-                    this.sliderToValue = sliderValue => { return sliderValue; };
-                    this.updateSlider = () => { this.slider.valueAsNumber = clamp(this.getValue(), -1e30, 1e30); };
-                    break;
-                }
-                case 'exp10': {
-                    this.sliderToValue = sliderValue => { return exp10(sliderValue); };
-                    this.updateSlider = () => { this.slider.valueAsNumber = clamp(log10(this.getValue()), -1e30, 1e30); };
-                    break;
-                }
-            }
-
-            this.updateText();
-            this.updateSlider();
-
-            this.text.addEventListener('focus', e => this.text.select());
-            this.text.addEventListener('input', e => {
-                //const limit = 1000;
-                //if (1.0/limit < +this.text.value && +this.text.value < limit) {
-                    this.setValue(+this.text.value);
-                    this.updateSlider();
-                //}
-            });
-            this.slider.addEventListener('input', e => {
-                this.setValue(this.sliderToValue(this.slider.valueAsNumber));
-                this.updateText();
-            });
-            this.resetButton.addEventListener('click', e => {
-                this.setValue(this.sliderToValue(this.getAttribute('value')));
-                this.updateText();
-                this.updateSlider();
-            });
+    let selectingColorForInput;
 
 
-            toolPanelLines[this.id] = this;
-        }
-        updateText() {
-            const res = +this.slider.step;
-            this.text.value = this.getValue().toFixed(-log10(res));
-        }
-        updateUI() {
-            this.updateText();
-            this.updateSlider();
+    cameraWInput      .updateUI();
+    timeSpeedInput    .updateUI();
+    gridDivisionsInput.updateUI();
+    thicknessInput.getValue = () => selectingColorForInput.thickness;
+    thicknessInput.setValue = (value) => { selectingColorForInput.thickness = value; updateGraphThicknessUniforms(); }
+    opacityInput.getValue = () => selectingColorForInput.opacity;
+    opacityInput.setValue = (value) => { selectingColorForInput.opacity = value; updateGraphOpacityUniforms(); }
+    graphLookInput.addEventListener('input', e => {
+        selectingColorForInput.graphLook = getGraphLook();
+        updateGraphFractClampUniforms();        
+    });
+
+    let graphToolPanelVisible = !!loadState('gtpv', true);
+
+    function updateGraphToolPanelVisibility() {
+        const gap = 8;
+        graphToolPanel.hidden = !graphToolPanelVisible;
+        graphToolPanel.style.right = `${gap}px`;
+        graphToolPanel.style.top = `${gap}px`;
+        graphToolPanelHandle.style.top = `${gap}px`;
+        if (graphToolPanelVisible) {
+            graphToolPanelHandle.innerText = '>';
+            graphToolPanelHandle.style.right = `${graphToolPanel.getBoundingClientRect().width + gap}px`;
+        } else {
+            graphToolPanelHandle.style.right = `${gap}px`;
+            graphToolPanelHandle.innerText = '<';
         }
     }
-    customElements.define('tool-panel-line', ToolPanelLine);
 
-    const cameraWLine = toolPanelLines["cameraWLine"];
+    updateGraphToolPanelVisibility();
+    graphToolPanelHandle.addEventListener('click', e => {
+        graphToolPanelVisible ^= 1;
+        updateGraphToolPanelVisibility();
+    });
+
+    rulersCheckbox.addEventListener('input', e => {
+        if (!rulersCheckbox.checked) {
+            for (let rulerText of rulerTexts) {
+                rulerText.style.top = `-1000px`;
+            }
+        }
+    });
+    cursorCoordsOnAxisCheckbox.addEventListener('input', e => {
+        if (!cursorCoordsOnAxisCheckbox.checked) {
+            cursorXRulerText.style.top = '-1000px';
+            cursorYRulerText.style.top = '-1000px';
+        }
+    });
 
 
     const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
@@ -529,8 +694,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         panPrevY = e.clientY;
     })
     canvas.addEventListener('wheel', e => {
-        console.log('mousewheel', e.wheelDeltaY);
-
         const deltaY = e.wheelDeltaY / 120.0;
 
         const step = 0.25;
@@ -590,6 +753,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             draggingInput.line.style = `
                 position: absolute;
                 top: ${y}px;
+                width: ${divider.getBoundingClientRect().left - 4}px;
                 z-index: 1;
             `;
             leftPanel.style.overflow = 'none';
@@ -599,6 +763,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
             let h = inputSpacer.getBoundingClientRect().height;
             inputDropIndex = round(y / h);
+            console.log(inputDropIndex);
             if (inputDropIndex < inputs.length)
                 leftPanel.insertBefore(inputSpacer, leftPanel.children[inputDropIndex]);
             else
@@ -611,25 +776,31 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         isDraggingDivider = false;
         isPanning = false;
         if (draggingInput) {
-            draggingInput.line.style = '';
-            leftPanel.style.overflow = 'none';
-            leftPanel.insertBefore(draggingInput.line, inputSpacer);
-            leftPanel.appendChild(inputSpacer);
-            inputs = Array.from(leftPanel.children).map(c => lineToInputMap.get(c)).filter(i => !!i);
-            let i = 0;
-            for (let input of inputs) {
-                input.index = i++;
-                updateInput(input);
-                updateCssColor(input);
+            if (inputDropIndex !== undefined) {
+                draggingInput.line.style = '';
+                leftPanel.style.overflow = 'none';
+                leftPanel.insertBefore(draggingInput.line, inputSpacer);
+                leftPanel.appendChild(inputSpacer);
+                inputs = Array.from(leftPanel.children).map(c => lineToInputMap.get(c)).filter(i => !!i);
+                let i = 0;
+                for (let input of inputs) {
+                    input.index = i++;
+                    updateInput(input);
+                    updateCssColor(input);
+                }
             }
+
             draggingInput = undefined;
         }
     });
     window.addEventListener('resize', () => {
         resizeCanvas();
     });
+    window.addEventListener('beforeunload', e => {
+        storeAllState();
+        flushStorage();
+    });
 
-    let selectingColorForInput;
     let ignoreFirstClick = false;
 
     function hexCharToInt(c) {
@@ -704,8 +875,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
         input.index = i;
         input.type = 'none';
-        input.thickness = 3.0;
-        input.opacity = 1.0;
+        input.thickness = defaultThickness;
+        input.opacity = defaultOpacity;
+        input.graphLook = defaultGraphLook;
         const line = document.createElement("div");
         lineToInputMap.set(line, input);
         input.line = line;
@@ -717,6 +889,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 draggingInput = input;
                 draggingInputOffsetX = input.line.getBoundingClientRect().left - e.clientX;
                 draggingInputOffsetY = input.line.getBoundingClientRect().top - e.clientY;
+                inputDropIndex = undefined;
             });
             input.knurl = knurl;
             line.appendChild(knurl);
@@ -726,7 +899,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             showPicker.className = "showPicker";
             showPicker.tabIndex = -1;
             showPicker.addEventListener('mousedown', e => {
-                console.log(colorPicker.style.display);
                 colorPicker.style = `
                     left: ${e.clientX}px;
                     top: ${Math.min(e.clientY, window.innerHeight - colorPicker.getBoundingClientRect().height)}px;
@@ -734,11 +906,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 `;
                 ignoreFirstClick = true;
                 selectingColorForInput = input;
-                thicknessSlider.valueAsNumber = input.thickness;
-                updateThicknessText(input.thickness);
-                opacitySlider.valueAsNumber = input.opacity;
-                updateOpacityText(input.opacity);
-
+                thicknessInput.updateUI();
+                opacityInput.updateUI();
+                graphLookInput.checked = input.graphLook == 'clamp';
                 lastClickedShowPicker = showPicker;
             })
             line.appendChild(showPicker);
@@ -752,6 +922,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             text.addEventListener('input', e => {
                 updateInput(input);
             })
+            initUndo(text);
             line.appendChild(text);
             input.text = text;
         }
@@ -775,6 +946,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 }
                 input.text.value = `${input.name} = ${slider.valueAsNumber} ${input.comment}`;
             });
+            initUndo(slider);
             line.appendChild(slider);
             input.slider = slider;
         }
@@ -797,6 +969,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 input.min.tabIndex = -1;
                 input.max.tabIndex = -1;
             });
+            initUndo(min);
             line.appendChild(min);
             input.min = min;
         }
@@ -819,6 +992,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 input.min.tabIndex = -1;
                 input.max.tabIndex = -1;
             });
+            initUndo(max);
             line.appendChild(max);
             input.max = max;
         }
@@ -870,40 +1044,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         colorPickerColorContainer.appendChild(button);
     }
 
-
-    function updateThicknessText(thickness) {
-        const resolution = 0.1;
-        thicknessText.value = thickness.toFixed(-log10(resolution));
-    }
-    function updateOpacityText(opacity) {
-        const resolution = 0.01;
-        opacityText.value = opacity.toFixed(-log10(resolution));
-    }
-    thicknessText.addEventListener('focus', e => thicknessText.select());
-    thicknessText.addEventListener('input', e => {
-        thicknessSlider.valueAsNumber = clamp(+thicknessText.value, +thicknessSlider.min, +thicknessSlider.max);
-        selectingColorForInput.thickness = +thicknessText.value;
-        updateGraphThicknessUniforms();
-    });
-    thicknessSlider.addEventListener('input', e => {
-        updateThicknessText(thicknessSlider.valueAsNumber);
-        selectingColorForInput.thickness = thicknessSlider.valueAsNumber;
-        updateGraphThicknessUniforms();
-    });
-
-    opacityText.addEventListener('focus', e => opacityText.select());
-    opacityText.addEventListener('input', e => {
-        opacitySlider.valueAsNumber = clamp(+opacityText.value, +opacitySlider.min, +opacitySlider.max);
-        selectingColorForInput.opacity = +opacityText.value;
-        updateGraphOpacityUniforms();
-    });
-    opacitySlider.addEventListener('input', e => {
-        updateOpacityText(opacitySlider.valueAsNumber);
-        selectingColorForInput.opacity = opacitySlider.valueAsNumber;
-        updateGraphOpacityUniforms();
-        updateCssColor(selectingColorForInput);
-    });
-
     colorPicker.style.display = 'none';
     window.onmousedown = e => {
         if (ignoreFirstClick) {
@@ -915,14 +1055,19 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         }
     };
 
-    let rulerTexts = [];
-    for (let i = 0; i < 100; ++i) {
+    function createRulerText() {
         const rulerText = document.createElement("div");
         rulerText.className = "rulerText";
-        rulerText.innerHTML = "0.0";
         rightPanel.insertBefore(rulerText, helpPanel);
-        rulerTexts.push(rulerText);
+        return rulerText;
     }
+    
+    let rulerTexts = [];
+    for (let i = 0; i < 100; ++i) {
+        rulerTexts.push(createRulerText());
+    }
+    let cursorXRulerText = createRulerText();
+    let cursorYRulerText = createRulerText();
 
     let needToRecompile = true;
 
@@ -941,6 +1086,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         input.color = colors[input.index % (colors.length - 1)];
         input.thickness = defaultThickness;
         input.opacity = defaultOpacity;
+        input.graphLook = defaultGraphLook;
     }
     function updateInput(input) {
         input.showType = 'z';
@@ -1096,14 +1242,15 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         for (let input of inputs) {
             if (input.type == 'none') {
                 if (input.text.value) {
-                    write(`i${input.index}t`, input.type)
+                    write(`i${input.index}t`, input.type);
                     write(`i${input.index}e`, input.text.value);
                 }
             } else if (input.type == 'graph') {
-                write(`i${input.index}t`, input.type)
+                write(`i${input.index}t`, input.type);
                 write(`i${input.index}c`, input.color);
                 if (input.thickness != defaultThickness) write(`i${input.index}w`, input.thickness);
                 if (input.opacity   != defaultOpacity  ) write(`i${input.index}o`, input.opacity  );
+                if (input.graphLook != defaultGraphLook) write(`i${input.index}l`, input.graphLook);
                 write(`i${input.index}e`, input.text.value);
             } else if (input.type == 'slider') {
                 write(`i${input.index}t`, input.type)
@@ -1167,6 +1314,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         case "c": input.color = value; continue;
                         case "w": input.thickness = +value; continue;
                         case "o": input.opacity = +value; continue;
+                        case "l": input.graphLook = value; continue;
                         case "e": input.text.value = value; continue;
                         case "a": input.min.value = input.slider.min = +value; continue;
                         case "b": input.max.value = input.slider.max = +value; continue;
@@ -1177,9 +1325,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             cameraY = targetCameraY;
             cameraZ = targetCameraZ;
             cameraW = targetCameraW;
+
+            cameraWInput.updateUI();
+            timeSpeedInput.updateUI();
+            gridDivisionsInput.updateUI();
         }
-        catch {
-            showPopup("Failed to parse URL parameter!");
+        catch(e) {
+            showPopup("Failed to load state from URL!");
+            console.error(e);
             loadStateOrDefault();
         }
     }
@@ -1193,13 +1346,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         if (loadState("i0t") !== undefined) {
             // Load from storage
             for (let input of inputs) {
-                input.type = loadState(`i${input.index}t`, "");
-                input.color = loadState(`i${input.index}c`, "");
-                input.thickness = +loadState(`i${input.index}w`, "");
-                input.opacity = +loadState(`i${input.index}o`, "");
-                input.text.value = loadState(`i${input.index}e`, "");
-                input.min.value = loadState(`i${input.index}a`, "");
-                input.max.value = loadState(`i${input.index}b`, "");
+                input.type       =  loadState(`i${input.index}t`, "");
+                input.color      =  loadState(`i${input.index}c`, "");
+                input.thickness  = +loadState(`i${input.index}w`, "");
+                input.opacity    = +loadState(`i${input.index}o`, "");
+                input.graphLook  =  loadState(`i${input.index}l`, "");
+                input.text.value =  loadState(`i${input.index}e`, "");
+                input.min.value  =  loadState(`i${input.index}a`, "");
+                input.max.value  =  loadState(`i${input.index}b`, "");
             }
         } else {
             // First opening
@@ -1223,15 +1377,18 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
     let program, resolutionLocation, timeLocation, cameraLocation;
     function updateGraphThicknessUniforms() {
-        const thickness = inputs.map((i) => i.thickness);
         if (program !== undefined) {
-            gl.uniform1fv(gl.getUniformLocation(program, "_graph_thickness"), thickness);
+            gl.uniform1fv(gl.getUniformLocation(program, "_graph_thickness"), inputs.map(i => i.thickness));
         }
     }
     function updateGraphOpacityUniforms() {
-        const opacity = inputs.map((i) => i.opacity);
         if (program !== undefined) {
-            gl.uniform1fv(gl.getUniformLocation(program, "_graph_opacity"), opacity);
+            gl.uniform1fv(gl.getUniformLocation(program, "_graph_opacity"), inputs.map(i => i.opacity));
+        }
+    }
+    function updateGraphFractClampUniforms() {
+        if (program !== undefined) {
+            gl.uniform1fv(gl.getUniformLocation(program, "_graph_clamp_instead_of_fract"), inputs.map(i => i.graphLook == 'clamp' ? 1 : 0));
         }
     }
 
@@ -1475,8 +1632,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     `;
                 }
 
+                graphCode += `{`;
                 if (isZ) {
-                    graphCode += `{
+                    graphCode += `
                         float _e = eval_${input.name}(_uv);
                         float _r = ${fieldExpr('_uv', '_e')};
                         vec4 _c = _graph_colors[${input.index}];
@@ -1488,42 +1646,49 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     if (input.isInequality) {
                         graphCode += `
                             _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * clamp01(_r / ${input.showType=='<'||input.showType=='<='?'-':'+'}_d) * 0.5);
+                            _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
                         `;
                     } else if (input.showType == 'z') {
                         graphCode += `
-                            float _m = sfrac(_r, _d);
+                            if (_graph_clamp_instead_of_fract[${input.index}] > 0.5) {
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * clamp01(_r));
+                            } else {
+                                float _m = sfrac(_r, _d);
 
-                            #if 0
-                            // Find min and max to normalize the graph to [0; 1] range.
-                            // This does only a few samples so it is not accurate, and very 
-                            // expensive because redundant - this is same for each pixel so should
-                            // be calculated only once.
-                            // It looks good on graphs that have consistent gradient directions.
-                            // Otherwise (e.g. sin(x)-sin(y)) it is unusable.
-                            // TODO: Would be cool to find actual min and max, but that requires
-                            //       separate shader passes to evaluate a single graph + downsample
-                            //       to find bounds.
-                            //       If I do that, try finding an average value as well an use it
-                            //       to skew the middle brightness if the graph is mostly low/high.
-                            vec2 _minmax = vec2(1e30, -1e30);
-                            for (float _y = 0.0f; _y <= 1.0f; _y += 0.25f) {
-                            for (float _x = 0.0f; _x <= 1.0f; _x += 0.25f) {
-                                float _f = eval_${input.name}((vec2(_x,_y) - 0.5) * iResolution / iResolution.y * _zoom + iCamera.xy);
-                                _minmax.x = min(_minmax.x, _f);
-                                _minmax.y = max(_minmax.y, _f);
-                            }
-                            }
-                            _m *= (_r - _minmax.x) / (_minmax.y - _minmax.x);
-                            #endif
+                                #if 0
+                                // Find min and max to normalize the graph to [0; 1] range.
+                                // This does only a few samples so it is not accurate, and very 
+                                // expensive because redundant - this is same for each pixel so should
+                                // be calculated only once.
+                                // It looks good on graphs that have consistent gradient directions.
+                                // Otherwise (e.g. sin(x)-sin(y)) it is unusable.
+                                // TODO: Would be cool to find actual min and max, but that requires
+                                //       separate shader passes to evaluate a single graph + downsample
+                                //       to find bounds.
+                                //       If I do that, try finding an average value as well an use it
+                                //       to skew the middle brightness if the graph is mostly low/high.
+                                vec2 _minmax = vec2(1e30, -1e30);
+                                for (float _y = 0.0f; _y <= 1.0f; _y += 0.25f) {
+                                for (float _x = 0.0f; _x <= 1.0f; _x += 0.25f) {
+                                    float _f = eval_${input.name}((vec2(_x,_y) - 0.5) * iResolution / iResolution.y * _zoom + iCamera.xy);
+                                    _minmax.x = min(_minmax.x, _f);
+                                    _minmax.y = max(_minmax.y, _f);
+                                }
+                                }
+                                _m *= (_r - _minmax.x) / (_minmax.y - _minmax.x);
+                                #endif
 
-                            _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _m * (1.0 - fract(floor(_r*0.1)*0.5)*0.5));
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _m * (1.0 - fract(floor(_r*0.1)*0.5)*0.5));
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
+                            }
+                        `;
+                    } else {
+                        graphCode += `
+                            _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
                         `;
                     }
-                    graphCode += `
-                        _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
-                    }`;
                 } else {
-                    graphCode += `{
+                    graphCode += `
                         float _e = eval_${input.name}(_uv);
                         float _r = ${fieldExpr('_uv', '_e')};
                         if (!isnan(_r) && abs(_r)<1e20) {
@@ -1541,8 +1706,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                             _c.w *= _graph_opacity[${input.index}];
                             _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
                         }
-                    }`;
+                    `;
                 }
+                graphCode += `}`;
             } else if (input.type == 'function') {
                 graphDefinitions += `
                     float ${input.name}(${input.params.map(p => "float " + p).join(", ")}) {
@@ -1642,6 +1808,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             uniform vec4 _graph_colors[20];
             uniform float _graph_thickness[20];
             uniform float _graph_opacity[20];
+            uniform float _graph_clamp_instead_of_fract[20];
             //uniform int _activeIndex;
             ${sliderUniformDefinitions}
 
@@ -1791,6 +1958,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         updateGraphColorsUniforms();
         updateGraphThicknessUniforms();
         updateGraphOpacityUniforms();
+        updateGraphFractClampUniforms();
         updateThemeUniforms();
     }
     
@@ -1877,6 +2045,10 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         {const rule = rules.find(r => r.selectorText === 'input:focus-visible');
             rule.style.borderColor = theme.inputBorderActive;
         }
+        {const rule = rules.find(r => r.selectorText === 'input[type="checkbox"]');
+            rule.style.backgroundColor = theme.inputBackground;
+            rule.style.borderColor = theme.inputBorder;
+        }
         //{const rule = rules.find(r => r.selectorText === 'input[type="text"].message');
         //    rule.style.backgroundColor = theme.inputBackground;
         //}
@@ -1929,7 +2101,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         targetCameraY = 0;
         targetCameraZ = 3;
         targetCameraW = 1;
-        cameraWLine.updateUI();
+        cameraWInput.updateUI();
     });
 
     function setupExample(button, param) {
@@ -1945,8 +2117,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         });
     }
 
-    setupExample(example1Button, "cy=2;cz=4;i0t=slider;i0e=t%20%3D%202%20;i0a=0;i0b=2;i1t=graph;i1c=%23f44f;i1e=y%20<%20pow(t%2C%20x);i2t=graph;i2c=%2348ff;i2o=0.5;i2e=(sin(x))%20%3D%20sin(y)%20%2F%2F%20Avoid%20defining%20new%20%60sin%60%20by%20wrapping%20in%20parens;i3t=slider;i3e=a%20%3D%202;i4t=function;i4e=f(x)%20%3D%20sin(x*a%20%2B%20iTime);i5t=graph;i5c=%23ff4f;i5e=f(x);i6t=graph;i6c=%234f4f;i6e=f(y);");
-    setupExample(example2Button, "i0t=graph;i0c=%23f44f;i0e=a%20%3D%20length(p)-iTime*0.1;i1t=graph;i1c=%234f4f;i1o=0.65;i1e=b%20%3D%20atan2(p)%2Ftau*8%2BiTime*0.1;i2t=graph;i2c=%23ff4f;i2e=b-sin(a);");
+    setupExample(example1Button, "cy=2;cz=4;i0t=slider;i0e=t%20%3D%202%20;i0a=0;i0b=2;i1t=graph;i1c=%23f44f;i1e=y%20<%20pow(t%2C%20x);i3t=slider;i3e=a%20%3D%202;i4t=function;i4e=f(x)%20%3D%20sin(x*a%20%2B%20iTime);i5t=graph;i5c=%23ff4f;i5e=f(x%2B1)-2%20%3D%20y;i7t=graph;i7c=%2348ff;i7e=x%2By*2%3D2;");
+    setupExample(example2Button, "i0t=graph;i0c=%23f44f;i0e=a%20%3D%20length(p)-iTime*0.1;i1t=graph;i1c=%234f4f;i1o=0.65;i1e=b%20%3D%20atan2(p)%2Ftau*8%2BiTime*0.1;i2t=graph;i2c=%2344ff;i2e=b-sin(a);i3t=graph;i3c=%23000f;i3l=clamp;i3e=length(p)-iTime*0.5;");
     setupExample(resetStateButton, "");
 
     helpButton.addEventListener('click', e => {
@@ -2007,17 +2179,20 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         let zoomX = zoomY*cameraW;
         let logZoomY = floor(logBase(gridDivisions, zoomY) + gridScalingOffset);
         let logZoomX = floor(logBase(gridDivisions, zoomX) + gridScalingOffset);
-        let fractionDigits = -logZoomY;
+        let fractionDigitsX = -logZoomX;
+        let fractionDigitsY = -logZoomY;
         switch (gridDivisions) {
             case 2:  
             case 5:  
             case 10:
                 break;
             default:
-                fractionDigits += 1;
+                fractionDigitsX += 1;
+                fractionDigitsY += 1;
                 break;
         }
-        fractionDigits = clamp(fractionDigits, 0, 100);
+        fractionDigitsX = clamp(floor(fractionDigitsX), 0, 100);
+        fractionDigitsY = clamp(floor(fractionDigitsY), 0, 100);
 
 
         let stepY = pow(gridDivisions, logZoomY);
@@ -2030,13 +2205,13 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         let x0 = (+(0 - cameraX) / zoomY * canvas.height + canvas.width  * 0.5)/window.devicePixelRatio;
         let y0 = (-(0 - cameraY) / zoomY * canvas.height + canvas.height * 0.5)/window.devicePixelRatio;
 
-        function renderRuler(x) {
+        function renderRuler(x, fractionDigits, logZoom) {
             if (rulerForm != 'decimal') {
-                if (logZoomY >= 0) {
+                if (logZoom >= 0) {
                     // zoomed out so only integers are displayed
                     return round(x);
                 } else {
-                    let p = pow(gridDivisions, -logZoomY);
+                    let p = pow(gridDivisions, -logZoom);
                     let numer = round(x*p);
                     let denom = round(  p);
 
@@ -2061,54 +2236,57 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             return x.toFixed(fractionDigits);
         }
 
-        let rulerTextIndex = 0;
-        for (let x = xmin; x <= xmax; x += stepX) { // TODO: x += step accumulates error. might wanna do it differently.
-            if (rulerTextIndex >= rulerTexts.length) break;
-            let rulerText = rulerTexts[rulerTextIndex++];
-            
-            if (Math.abs(x) < stepX*1e-3) x = 0; // Avoid -0
-            
-            rulerText.innerHTML = renderRuler(x);
-            let rect = rulerText.getBoundingClientRect();
+        if (rulersCheckbox.checked) {
+            let rulerTextIndex = 0;
+            for (let x = xmin; x <= xmax; x += stepX) { // TODO: x += step accumulates error. might wanna do it differently.
+                if (rulerTextIndex >= rulerTexts.length) break;
+                let rulerText = rulerTexts[rulerTextIndex++];
+                
+                if (Math.abs(x) < stepX*1e-3) x = 0; // Avoid -0
+                
+                rulerText.innerHTML = renderRuler(x, fractionDigitsX, logZoomX);
+                let rect = rulerText.getBoundingClientRect();
 
-            let left = +(x/cameraW - cameraX) / zoomY * canvas.height + canvas.width  * 0.5;
-            left = (left - rect.width * (Math.abs(x) < 1e-3 ? 1.0 : 0.5))/window.devicePixelRatio;
-            
-            let top = y0;
+                let left = +(x/cameraW - cameraX) / zoomY * canvas.height + canvas.width  * 0.5;
+                left = (left - rect.width * (Math.abs(x) < 1e-3 ? 1.0 : 0.5))/window.devicePixelRatio;
+                
+                let top = y0;
 
-            rulerText.style.left = `${left}px`;
-            rulerText.style.top = `${clamp(top, 0, canvas.height - rect.height)}px`;
-        }
-        for (let y = ymax; y <= ymin; y += stepY) { // TODO: y += step accumulates error. might wanna do it differently.
-            if (rulerTextIndex >= rulerTexts.length) break;
-            if (Math.abs(y) < stepY*1e-3) continue;
-            let rulerText = rulerTexts[rulerTextIndex++];
-            
-            rulerText.innerHTML = renderRuler(y);
-            let rect = rulerText.getBoundingClientRect();
+                rulerText.style.left = `${left}px`;
+                rulerText.style.top = `${clamp(top, 0, canvas.height - rect.height)}px`;
+            }
+            for (let y = ymax; y <= ymin; y += stepY) { // TODO: y += step accumulates error. might wanna do it differently.
+                if (rulerTextIndex >= rulerTexts.length) break;
+                if (Math.abs(y) < stepY*1e-3) continue;
+                let rulerText = rulerTexts[rulerTextIndex++];
+                
+                rulerText.innerHTML = renderRuler(y, fractionDigitsY, logZoomY);
+                let rect = rulerText.getBoundingClientRect();
 
-            let left = x0 - rect.width;
-            
-            let top = -(y - cameraY) / zoomY * canvas.height + canvas.height  * 0.5;
-            top = (top - rect.height*0.5)/window.devicePixelRatio;
+                let left = x0 - rect.width;
+                
+                let top = -(y - cameraY) / zoomY * canvas.height + canvas.height  * 0.5;
+                top = (top - rect.height*0.5)/window.devicePixelRatio;
 
-            rulerText.style.left = `${clamp(left, 0, canvas.width - rect.width)}px`;
-            rulerText.style.top = `${top}px`;
-        }
-        for (let i = rulerTextIndex; i < rulerTexts.length; ++i) {
-            let rulerText = rulerTexts[i];
-            rulerText.style.top = `-1000px`;
+                rulerText.style.left = `${clamp(left, 0, canvas.width - rect.width)}px`;
+                rulerText.style.top = `${top}px`;
+            }
+            for (let i = rulerTextIndex; i < rulerTexts.length; ++i) {
+                let rulerText = rulerTexts[i];
+                rulerText.style.top = `-1000px`;
+            }
         }
 
         {
-            let fractionDigits = clamp(-logZoomY + 2, 0, 100);
-            let maxChars       = Math.max(fractionDigits, ceil(log10(Math.max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))));
+            let fractionDigitsX = clamp(-logZoomX + 2, 0, 100);
+            let fractionDigitsY = clamp(-logZoomY + 2, 0, 100);
+            let maxChars       = Math.max(fractionDigitsX, ceil(log10(Math.max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))));
 
             let cr = canvas.getBoundingClientRect();
             let x = mouseX - cr.left;
             let y = mouseY - cr.top;
-            x = (( (x - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigits);
-            y = ((-(y - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigits);
+            x = (( (x - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigitsX);
+            y = ((-(y - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigitsY);
             cursorCoordsTextX.innerText = "x="+x;
             cursorCoordsTextX.style = `
                 position: absolute;
@@ -2121,7 +2299,27 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 left: ${100 + maxChars*10}px;
             `;
         }
+        if (cursorCoordsOnAxisCheckbox.checked) {
+            let fractionDigitsX = clamp(-logZoomX + 2, 0, 100);
+            let fractionDigitsY = clamp(-logZoomY + 2, 0, 100);
 
+            let cr = canvas.getBoundingClientRect();
+
+            cursorXRulerText.innerText = (( ((mouseX - cr.left) - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigitsX);
+            cursorYRulerText.innerText = ((-((mouseY - cr.top ) - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigitsY);
+
+            {
+                let rect = cursorXRulerText.getBoundingClientRect();
+                cursorXRulerText.style.left = `${mouseX - cr.left}px`;
+                cursorXRulerText.style.top = `${clamp(y0, 0, canvas.height - rect.height)}px`;
+            }
+            {
+                let rect = cursorYRulerText.getBoundingClientRect();
+                cursorYRulerText.style.left = `${clamp(x0, 0, canvas.width - rect.width)}px`;
+                cursorYRulerText.style.top = `${mouseY - cr.top}px`;
+            }
+        }
+        
         canvas.hidden = false;
 
         requestAnimationFrame(animate);
@@ -2164,12 +2362,18 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         storeState("cw", targetCameraW);
         storeState("ts", timeSpeed);
         storeState("gd", gridDivisions);
+        storeState("rf", rulerForm);
+        storeState("crt", cursorRulerType);
+        storeState("gtpv", graphToolPanelVisible);
+        storeState("rc", rulersCheckbox.checked);
+        storeState("ccoac", cursorCoordsOnAxisCheckbox.checked);
         for (let input of inputs) {
             // Redundant, but whatever...
             storeState(`i${input.index}t`, input.type);
             storeState(`i${input.index}c`, input.color);
             storeState(`i${input.index}w`, input.thickness);
             storeState(`i${input.index}o`, input.opacity);
+            storeState(`i${input.index}l`, input.graphLook);
             storeState(`i${input.index}e`, input.text.value);
             storeState(`i${input.index}a`, input.min.value);
             storeState(`i${input.index}b`, input.max.value);
@@ -2369,6 +2573,12 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             var val = document.defaultView.getComputedStyle(input, null).getPropertyValue(prop);
             return isnumber ? parseFloat(val) : val;
         }
+    }
+
+    function objectMap(object, mapFn) {
+        return Object.keys(object).map(function(key) {
+            return mapFn(object[key]);
+        });
     }
 </script>
 </html>
