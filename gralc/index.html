@@ -61,7 +61,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 * Show point on graph closest to mouse?
 * Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs.
 * Should be able to update a graph while the other ones fail to compile. One shader per graph? Harder to reference though.
-* Custom grid divisions.
 * Improve precision. 32-bit floats are not that accurate as I want. Doing more than that would require actually transpiling expressions to work on two floats at once. <a href="https://hal.science/hal-00021443">https://hal.science/hal-00021443</a>
             </div>
             <div id="graphToolPanel">
@@ -105,12 +104,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     </div>
 </body>
 <style>
+    :root {
+    }
     * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
-        background-color: #333;
-        color: #fff;
+        background-color: var(--background);
+        color: var(--foreground);
         font-family: Arial;
         font-size: 16px;
     }
@@ -134,7 +135,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     #divider {
         width: 10px;
         height: 100%;
-        background-color: #222;
+        background-color: var(--divider);
         cursor: col-resize;
         user-select: none;
     }
@@ -166,14 +167,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         border: 1px solid #0008;
     }
     input[type="text"] {
-        background-color: #222;
+        background-color: var(--input-background);
         height: 32px;
         padding-left: 8px;
         margin-bottom: 2px;
-        border: 1px solid;
+        border: 1px solid var(--input-border);
     }
     input:focus-visible {
-        border: 1px solid;
+        border: 1px solid var(--input-border-active);
         outline: 0;
     }
     input[type="range"] {
@@ -185,15 +186,15 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     input[type="range"]::-webkit-slider-runnable-track {
         box-sizing: content-box;
-        border: 1px solid #111;
+        border: 1px solid var(--input-border);
         height: 15px;
-        background-color: #252525;
+        background-color: var(--input-background);
     }
     input[type="range"]::-moz-range-track {
         box-sizing: content-box;
         border: 1px solid #111;
         height: 15px;
-        background-color: #252525;
+        background-color: var(--input-background);
     }
     input[type="range"]::-webkit-slider-thumb {
         height: 15px;
@@ -220,8 +221,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         height: 16px;
         font-size: 14px;
 
+        background-color: var(--input-background);
         position: relative;
-        border: 1px solid;
+        border: 1px solid var(--input-border);
         appearance: initial;
         border-radius: 0;
         -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
@@ -250,17 +252,18 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     .commentCurtain {
         position: absolute;
-        background-color: #f00;
+        background-color: color-mix(in srgb, var(--input-background), transparent 50%);
         pointer-events: none;
         cursor: default;
         user-select: none;
     }
     button {
         height: 32px;
-        border: 1px solid;
+        border: 1px solid var(--button-border-regular);
         padding: 4px;
     }
     button:hover {
+        border: 1px solid var(--button-border-hovered);
     }
 
     .slider {
@@ -311,10 +314,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         height: 45px;
         aspect-ratio: 1;
         margin: 0;
-        border: 1px solid #fff8;
-    }
-    #colorPickerColorContainer > :hover {
-        border-color: #ffff;
     }
     
     .rulerText {
@@ -329,15 +328,13 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     .rightButton {
         width: 48px;
         height: 48px;
-        border: 1px solid;
         margin: 2px;
-    }
-    .rightButton:hover {
     }
     #helpPanel {
         position: absolute;
         bottom: 0px;
-        width: 100%;
+        left: 2px;
+        right: 2px;
         padding: 4px;
         white-space: pre-wrap;
         max-height: 50dvh;
@@ -1986,8 +1983,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         buttonBorderRegular: "#0004",
         buttonBorderHovered: "#0008",
         divider: "#eeef",
-        colorPickerBorderRegular: "#0008",
-        colorPickerBorderHovered: "#000f",
         graphBackground: "#eeef",
         graphGrid: "#aaaf",
         //graphActive: "#000f",
@@ -2001,88 +1996,18 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             //gl.uniform4fv(gl.getUniformLocation(program, "_activeColor"), colorStringTo4Floats(theme.graphActive));
         }
     }
-    const rules = Array.from(document.styleSheets[0].cssRules);
-    // This does not work for some reason. Identical css above works, here it doesnt.
-    //{
-    //    function setSliderTrackStyle(selector) {
-    //        const rule = rules.find(r => r.selectorText === selector);
-    //        if (!rule) return;
-    //        console.log("updating", selector);
-    //        rule.style += `
-    //            box-sizing: content-box;
-    //            border: 1px solid #111;
-    //            height: 15px;
-    //            background-color: #555;
-    //        `;
-    //    }
-    //    function setSliderThumbStyle(selector) {
-    //        const rule = rules.find(r => r.selectorText === selector);
-    //        if (!rule) return;
-    //        console.log("updating", selector);
-    //        rule.style += `
-    //            width: 100px;
-    //            height: 100px;
-    //            border: none;
-    //            border-radius: 50%;
-    //            background: white;
-    //        `;
-    //    }
-    //
-    //    setSliderTrackStyle("input[type=\"range\"]::-webkit-slider-runnable-track");
-    //    setSliderTrackStyle("input[type=\"range\"]::-moz-range-track");
-    //    setSliderThumbStyle("input[type=\"range\"]::-webkit-slider-thumb");
-    //    setSliderThumbStyle("input[type=\"range\"]::-moz-range-thumb");
-    //}
+    const rootRule = Array.from(document.styleSheets[0].cssRules).find(r => r.selectorText === ':root');
     function updateThemeStyles() {
-        {const rule = rules.find(r => r.selectorText === '*');
-            rule.style.backgroundColor = theme.globalBackground;
-            rule.style.color = theme.globalForeground;
-        }
-        {const rule = rules.find(r => r.selectorText === 'input[type="text"]');
-            rule.style.backgroundColor = theme.inputBackground;
-            rule.style.borderColor = theme.inputBorder;
-        }
-        {const rule = rules.find(r => r.selectorText === 'input:focus-visible');
-            rule.style.borderColor = theme.inputBorderActive;
-        }
-        {const rule = rules.find(r => r.selectorText === 'input[type="checkbox"]');
-            rule.style.backgroundColor = theme.inputBackground;
-            rule.style.borderColor = theme.inputBorder;
-        }
-        //{const rule = rules.find(r => r.selectorText === 'input[type="text"].message');
-        //    rule.style.backgroundColor = theme.inputBackground;
-        //}
-        {const rule = rules.find(r => r.selectorText === '.commentCurtain');
-            rule.style.backgroundColor = theme.inputBackground.substr(0, 4) + "8";
-        }
-        {const rule = rules.find(r => r.selectorText === '.colorPickerColor');
-            rule.style.borderColor = theme.colorPickerBorderRegular;
-        }
-        {const rule = rules.find(r => r.selectorText === '#colorPickerColorContainer > :hover');
-            rule.style.borderColor = theme.colorPickerBorderHovered;
-        }
-        {const rule = rules.find(r => r.selectorText === '.rightButton');
-            rule.style.borderColor = theme.buttonBorderRegular;
-        }
-        {const rule = rules.find(r => r.selectorText === '.rightButton:hover');
-            rule.style.borderColor = theme.buttonBorderHovered;
-        }
-        {const rule = rules.find(r => r.selectorText === 'button');
-            rule.style.borderColor = theme.buttonBorderRegular;
-        }
-        {const rule = rules.find(r => r.selectorText === 'button:hover');
-            rule.style.borderColor = theme.buttonBorderHovered;
-        }
-        {const rule = rules.find(r => r.selectorText === '#divider');
-            rule.style.backgroundColor = theme.divider;
-        }
-        {const rule = rules.find(r => r.selectorText === 'input[type="range"]::-webkit-slider-runnable-track'); if (rule) {
-            rule.style.backgroundColor = theme.inputBackground;
-            rule.style.borderColor = theme.inputBorder;
-        }}
-        {const rule = rules.find(r => r.selectorText === 'input[type="range"]::-moz-range-track'); if (rule) {
-            rule.style.backgroundColor = theme.inputBackground;
-        }}
+        rootRule.style.cssText = `
+            --background: ${theme.globalBackground};
+            --foreground: ${theme.globalForeground};
+            --divider: ${theme.divider};
+            --input-background: ${theme.inputBackground};
+            --input-border: ${theme.inputBorder};
+            --input-border-active: ${theme.inputBorderActive};
+            --button-border-regular: ${theme.buttonBorderRegular};
+            --button-border-hovered: ${theme.buttonBorderHovered};
+        `;
     }
     function setTheme(newTheme) {
         theme = newTheme;
