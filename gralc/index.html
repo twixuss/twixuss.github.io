@@ -59,8 +59,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 * Work loss prevention.
 * Undo for sliders.
 * Show point on graph closest to mouse?
-* Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs.
-* Should be able to update a graph while the other ones fail to compile. One shader per graph? Harder to reference though.
+* Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs. Also should improve GLSL compiler speed since it wont do five times more inlining work.
+* Quality options? Low - ddx/ddy, high - analytic.
+* Should be able to update a graph while the other ones fail to compile. One shader per graph? Harder to reference though. Or could just reevaluate.
 * Improve precision. 32-bit floats are not that accurate as I want. Doing more than that would require actually transpiling expressions to work on two floats at once. <a href="https://hal.science/hal-00021443">https://hal.science/hal-00021443</a>
             </div>
             <div id="graphToolPanel">
@@ -192,7 +193,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     input[type="range"]::-moz-range-track {
         box-sizing: content-box;
-        border: 1px solid #111;
+        border: 1px solid var(--input-border);
         height: 15px;
         background-color: var(--input-background);
     }
@@ -242,7 +243,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         content: "";
     }
     input[type="checkbox"]:checked:after {
-        /* ✓ */
+        /* ○•✓ */
         content: "X";
     }
     label {
@@ -670,6 +671,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
 
     const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    const ext = gl.getExtension('KHR_parallel_shader_compile');
+    if (ext) console.log("Async shader compilation is supported.");
 
     function resizeCanvas() {
         const w = rightPanel.getBoundingClientRect().width - 4;
@@ -847,6 +850,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         a *= input.opacity;
         input.showPicker.style = styleForColor(input.color.substr(0, 4) + String.fromCharCode(floatToHexChar(a)));
     }
+
+    opacityInput.text.addEventListener('input', e => updateCssColor(selectingColorForInput));
+    opacityInput.slider.addEventListener('input', e => updateCssColor(selectingColorForInput));
 
     let colors = [
         '#f44f',
@@ -1391,14 +1397,28 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
     const gridScalingOffset = -0.3;
 
-    function recompile() {
+    let fragmentShaderSource;
+
+    async function recompile() {
         console.log('recompiling');
+
+        let entireStart = Date.now();
+
+        let start = Date.now();
+        function endProfileSection() {
+            let end = Date.now();
+            let originalStart = start;
+            start = end;
+            return end - originalStart;
+        }
 
         // Hide message reports
         for (let input of inputs) {
             input.message.hidden = true;
             input.createSliderButton.hidden = true;
         }
+
+        const clearTime = endProfileSection();
 
         // Compute dependencies
         for (let input of inputs) {
@@ -1457,6 +1477,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             }
         }
 
+        const dependenciesTime = endProfileSection();
         
 		// Find dependency cycles and reorder inputs
         let reorderedInputs = [];
@@ -1484,10 +1505,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 }
             }
 
-			function add_edge(from, to) {
-                getOrInsertVertex(from).pointees.push(to);
-			}
-
 			for (let dependency of inputs) {
 				let dependants = [];
 				for (let entry of inputs) {
@@ -1495,7 +1512,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 						dependants.push(entry);
 				}
 				for (let dependant of dependants) {
-					add_edge(dependant, dependency);
+                    getOrInsertVertex(dependant).pointees.push(dependency);
 				}
 			}
 
@@ -1551,21 +1568,20 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             }
 		}
 
+        const cycleDetectionTime = endProfileSection();
 
         for (let input of inputs) {
             if (input.type == 'graph' || input.type == 'function') {
-                input.tokens = tokenize(input.expr);
-                let newTokens = [];
+                input.processedTokens = [];
                 for (let token of input.tokens) {
-                    let found = inputs.find(other => other.type == 'graph' && other.name == token);
+                    let found = inputs.find(other => other.type == 'graph' && other.name == token && other.name != 'x' && other.name != 'y');
                     if (found) {
-                        newTokens.push('eval_' + token, '(', 'p', ')');
+                        input.processedTokens.push('eval_' + token, '(', 'p', ')');
                     } else {
-                        newTokens.push(token);
+                        input.processedTokens.push(token);
                     }
                 }
-                input.tokens = newTokens;
-                input.processedExpr = input.tokens.join('');
+                input.processedExpr = input.processedTokens.join('');
             }
         }
 
@@ -1651,8 +1667,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                                 _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * clamp01(_r));
                             } else {
                                 float _m = sfrac(_r, _d);
-
-                                #if 0
+                                ${false ? 
                                 // Find min and max to normalize the graph to [0; 1] range.
                                 // This does only a few samples so it is not accurate, and very 
                                 // expensive because redundant - this is same for each pixel so should
@@ -1664,6 +1679,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                                 //       to find bounds.
                                 //       If I do that, try finding an average value as well an use it
                                 //       to skew the middle brightness if the graph is mostly low/high.
+                                `
                                 vec2 _minmax = vec2(1e30, -1e30);
                                 for (float _y = 0.0f; _y <= 1.0f; _y += 0.25f) {
                                 for (float _x = 0.0f; _x <= 1.0f; _x += 0.25f) {
@@ -1673,8 +1689,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                                 }
                                 }
                                 _m *= (_r - _minmax.x) / (_minmax.y - _minmax.x);
-                                #endif
-
+                                ` : ''}
                                 _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _m * (1.0 - fract(floor(_r*0.1)*0.5)*0.5));
                                 _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
                             }
@@ -1690,14 +1705,17 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         float _r = ${fieldExpr('_uv', '_e')};
                         if (!isnan(_r) && abs(_r)<1e20) {
                             ${computeDerivativeLength('_d')}
-
-                            //if (_activeIndex == ${input.index}) {
-                            //    float _thick = _graph_thickness[${input.index}] + 1.0;
-                            //    float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
-                            //    vec4 _c = _activeColor;
-                            //    _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
-                            //}
-
+                            ${false ? 
+                            // Don't like how it looks
+                            `
+                            if (_activeIndex == ${input.index}) {
+                                float _thick = _graph_thickness[${input.index}] + 1.0;
+                                float _g = mapc(abs(_r), _d*_thick, _d*(_thick - 1.0), 0.0, 1.0);
+                                vec4 _c = _activeColor;
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _g);
+                            }
+                            ` : ''
+                            }
                             float _thick = _graph_thickness[${input.index}];
                             vec4 _c = _graph_colors[${input.index}];
                             _c.w *= _graph_opacity[${input.index}];
@@ -1720,7 +1738,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             }
         }
 
-        const fragmentShaderSource = `#version 300 es
+        fragmentShaderSource = `#version 300 es
+            //#pragma optimize(off)
             precision highp float;
             
             #define pi 3.141592653
@@ -1766,6 +1785,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     return smin(a, b, -k); \\
                 } \\
                 float sfloor(float x, float s) { \\
+                    s = clamp(s, float(0.0), float(1.0)); \\
+                    if (s == float(0.0)) \\
+                        return floor(x); \\
                     x -= 0.5; \\
                     return floor(x)+smoothstep(-0.5,0.5,(fract(x)-0.5)/s); \\
                 } \\
@@ -1846,7 +1868,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             }
         `;
 
-        console.log(fragmentShaderSource);
+        //console.log(fragmentShaderSource);
+
+        const sourceGenerationTime = endProfileSection();
 
         function reportErrors(reportString) {
             console.log(reportString);
@@ -1920,7 +1944,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             }
             return shader;
         }
-        
+
         const vertexShader = compileShader(vertexShaderSource, gl.VERTEX_SHADER);
         if (!vertexShader)
             return null;
@@ -1934,13 +1958,30 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         gl.attachShader(newProgram, fragmentShader);
         gl.linkProgram(newProgram);
         
+        const compilationTime = endProfileSection();
+
+        if (ext) {
+            while (!gl.getProgramParameter(newProgram, ext.COMPLETION_STATUS_KHR)) {
+                await sleep(1); // Never seen a shader compile in less than a millisecond, so that should be fine.
+            }
+        }
+
+        // TODO: For some reason, this is extremely slow in firefox - 100ms compared to 20ms in brave.
+        //       And this is in addition to unavailability of KHR_parallel_shader_compile!
+        //       Just editing example #2 is painful already.
+        //       #pragma optimize(off) in fragment shader doesn't make a difference.
         if (!gl.getProgramParameter(newProgram, gl.LINK_STATUS)) {
             reportErrors(gl.getProgramInfoLog(newProgram));
             return null;
         }
 
+        const getLinkStatusTime = endProfileSection();
+
         program = newProgram;
         gl.useProgram(program);
+        
+        const useProgramTime = endProfileSection();
+
         resolutionLocation = gl.getUniformLocation(program, 'iResolution');
         timeLocation = gl.getUniformLocation(program, 'iTime');
         cameraLocation = gl.getUniformLocation(program, 'iCamera');
@@ -1957,6 +1998,21 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         updateGraphOpacityUniforms();
         updateGraphFractClampUniforms();
         updateThemeUniforms();
+     
+        const uniformSettingTime = endProfileSection();
+     
+        let entireEnd = Date.now();
+        const entireTime = entireEnd - entireStart;
+     
+        console.log(`Recompilation took ${entireTime} ms.
+    State clear: ${clearTime} ms.
+    Dependency finding: ${dependenciesTime} ms.
+    Cycle finding: ${cycleDetectionTime} ms.
+    Source generation: ${sourceGenerationTime} ms.
+    Compilation: ${compilationTime} ms.
+    Get link status: ${getLinkStatusTime} ms.
+    gl.useProgram: ${useProgramTime} ms.
+    Uniform setting: ${uniformSettingTime} ms`);
     }
     
     const darkTheme = {
@@ -2014,10 +2070,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         updateThemeStyles();
         updateThemeUniforms();
     }
-    
-    recompile();
-    needToRecompile = false;
-    setTheme(theme);
+
     darkThemeButton.addEventListener('click', e => setTheme(darkTheme));
     lightThemeButton.addEventListener('click', e => setTheme(lightTheme));
 
@@ -2055,204 +2108,210 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     let shaderTime = 0.0;
     let storageWriteTimer = 0.0;
     let storageFlushTimer = 0.0;
-    
-    function animate(timestamp) {
-        const frameTime = (timestamp && prevTimestamp) ? Math.min((timestamp - prevTimestamp) / 1000, 0.033) : 0.016;
-        prevTimestamp = timestamp;
-        realTime += frameTime;
-        shaderTime += frameTime * timeSpeed;
+
+    (async () => {
+        await recompile();
+        needToRecompile = false;
+        setTheme(theme);
         
-        gl.viewport(0, 0, canvas.width, canvas.height);
+        async function animate(timestamp) {
+            const frameTime = (timestamp && prevTimestamp) ? Math.min((timestamp - prevTimestamp) / 1000, 0.066) : 0.016;
+            prevTimestamp = timestamp;
+            realTime += frameTime;
+            shaderTime += frameTime * timeSpeed;
+            
+            gl.viewport(0, 0, canvas.width, canvas.height);
 
-        cameraX = cameraX + (targetCameraX - cameraX) * (1.0 - Math.exp(frameTime * -50.0));
-        cameraY = cameraY + (targetCameraY - cameraY) * (1.0 - Math.exp(frameTime * -50.0));
-        cameraZ = cameraZ + (targetCameraZ - cameraZ) * (1.0 - Math.exp(frameTime * -50.0));
-        cameraW = cameraW + (targetCameraW - cameraW) * (1.0 - Math.exp(frameTime * -50.0));
+            cameraX = cameraX + (targetCameraX - cameraX) * (1.0 - Math.exp(frameTime * -50.0));
+            cameraY = cameraY + (targetCameraY - cameraY) * (1.0 - Math.exp(frameTime * -50.0));
+            cameraZ = cameraZ + (targetCameraZ - cameraZ) * (1.0 - Math.exp(frameTime * -50.0));
+            cameraW = cameraW + (targetCameraW - cameraW) * (1.0 - Math.exp(frameTime * -50.0));
 
-        if (needToRecompile) {
-            needToRecompile = false;
-            recompile();
-        }
-        if (program !== undefined) {
-            gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
-            gl.uniform4f(cameraLocation, cameraX, cameraY, cameraZ, cameraW);
-            gl.uniform1f(timeLocation, shaderTime);
-            gl.uniform1f(gl.getUniformLocation(program, "_gridDivisions"), gridDivisions);
-            gl.drawArrays(gl.TRIANGLES, 0, 3);
-        }
+            if (needToRecompile) {
+                needToRecompile = false;
+                await recompile();
+            }
+            if (program !== undefined) {
+                gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+                gl.uniform4f(cameraLocation, cameraX, cameraY, cameraZ, cameraW);
+                gl.uniform1f(timeLocation, shaderTime);
+                gl.uniform1f(gl.getUniformLocation(program, "_gridDivisions"), gridDivisions);
+                gl.drawArrays(gl.TRIANGLES, 0, 3);
+            }
 
-        storageWriteTimer += frameTime;
-        if (storageWriteTimer >= 0 && program) {
-            storageWriteTimer -= 1;
+            storageWriteTimer += frameTime;
+            if (storageWriteTimer >= 0 && program) {
+                storageWriteTimer -= 1;
 
-            storeAllState();
+                storeAllState();
 
-            // TODO:
-            // This makes page zoom reset every time.
-            window.history.replaceState(null, '', stateToUrlParams());
-        }
+                // TODO:
+                // This makes page zoom reset every time.
+                window.history.replaceState(null, '', stateToUrlParams());
+            }
 
-        storageFlushTimer += frameTime;
-        if (storageFlushTimer >= 0 && program) {
-            storageFlushTimer -= 10;
+            storageFlushTimer += frameTime;
+            if (storageFlushTimer >= 0 && program) {
+                storageFlushTimer -= 10;
 
-            // This is extremely slow, so do it as rarely as reasonable.
-            flushStorage();
-        }
+                // This is extremely slow, so do it as rarely as reasonable.
+                flushStorage();
+            }
 
-        let zoomY = exp2(cameraZ);
-        let zoomX = zoomY*cameraW;
-        let logZoomY = floor(logBase(gridDivisions, zoomY) + gridScalingOffset);
-        let logZoomX = floor(logBase(gridDivisions, zoomX) + gridScalingOffset);
-        let fractionDigitsX = -logZoomX;
-        let fractionDigitsY = -logZoomY;
-        switch (gridDivisions) {
-            case 2:  
-            case 5:  
-            case 10:
-                break;
-            default:
-                fractionDigitsX += 1;
-                fractionDigitsY += 1;
-                break;
-        }
-        fractionDigitsX = clamp(floor(fractionDigitsX), 0, 100);
-        fractionDigitsY = clamp(floor(fractionDigitsY), 0, 100);
+            let zoomY = exp2(cameraZ);
+            let zoomX = zoomY*cameraW;
+            let logZoomY = floor(logBase(gridDivisions, zoomY) + gridScalingOffset);
+            let logZoomX = floor(logBase(gridDivisions, zoomX) + gridScalingOffset);
+            let fractionDigitsX = -logZoomX;
+            let fractionDigitsY = -logZoomY;
+            switch (gridDivisions) {
+                case 2:  
+                case 5:  
+                case 10:
+                    break;
+                default:
+                    fractionDigitsX += 1;
+                    fractionDigitsY += 1;
+                    break;
+            }
+            fractionDigitsX = clamp(floor(fractionDigitsX), 0, 100);
+            fractionDigitsY = clamp(floor(fractionDigitsY), 0, 100);
 
 
-        let stepY = pow(gridDivisions, logZoomY);
-        let stepX = pow(gridDivisions, logZoomX);
-        let xmin = floor(( (0             - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW/stepX)*stepX;
-        let xmax =  ceil(( (canvas.width  - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW/stepX + 1)*stepX;
-        let ymin =  ceil((-(0             - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        /stepY + 1)*stepY;
-        let ymax = floor((-(canvas.height - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        /stepY)*stepY;
+            let stepY = pow(gridDivisions, logZoomY);
+            let stepX = pow(gridDivisions, logZoomX);
+            let xmin = floor(( (0             - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW/stepX)*stepX;
+            let xmax =  ceil(( (canvas.width  - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW/stepX + 1)*stepX;
+            let ymin =  ceil((-(0             - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        /stepY + 1)*stepY;
+            let ymax = floor((-(canvas.height - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        /stepY)*stepY;
 
-        let x0 = (+(0 - cameraX) / zoomY * canvas.height + canvas.width  * 0.5)/window.devicePixelRatio;
-        let y0 = (-(0 - cameraY) / zoomY * canvas.height + canvas.height * 0.5)/window.devicePixelRatio;
+            let x0 = (+(0 - cameraX) / zoomY * canvas.height + canvas.width  * 0.5)/window.devicePixelRatio;
+            let y0 = (-(0 - cameraY) / zoomY * canvas.height + canvas.height * 0.5)/window.devicePixelRatio;
 
-        function renderRuler(x, fractionDigits, logZoom) {
-            if (rulerForm != 'decimal') {
-                if (logZoom >= 0) {
-                    // zoomed out so only integers are displayed
-                    return round(x);
-                } else {
-                    let p = pow(gridDivisions, -logZoom);
-                    let numer = round(x*p);
-                    let denom = round(  p);
-
-                    if (numer == 0) {
-                        return "0";
+            function renderRuler(x, fractionDigits, logZoom) {
+                if (rulerForm != 'decimal') {
+                    if (logZoom >= 0) {
+                        // zoomed out so only integers are displayed
+                        return round(x);
                     } else {
-                        if (rulerForm == 'rational-gcd') {
-                            let d = gcd(numer, denom);
-                            numer = round(numer / d);
-                            denom = round(denom / d);
-                        }
+                        let p = pow(gridDivisions, -logZoom);
+                        let numer = round(x*p);
+                        let denom = round(  p);
 
-                        let int = floor(numer / denom);
-                        if (int * denom == numer) {
-                            return int;
+                        if (numer == 0) {
+                            return "0";
                         } else {
-                            return `${numer}/${denom}`;
+                            if (rulerForm == 'rational-gcd') {
+                                let d = gcd(numer, denom);
+                                numer = round(numer / d);
+                                denom = round(denom / d);
+                            }
+
+                            let int = floor(numer / denom);
+                            if (int * denom == numer) {
+                                return int;
+                            } else {
+                                return `${numer}/${denom}`;
+                            }
                         }
                     }
                 }
+                return x.toFixed(fractionDigits);
             }
-            return x.toFixed(fractionDigits);
-        }
 
-        if (rulersCheckbox.checked) {
-            let rulerTextIndex = 0;
-            for (let x = xmin; x <= xmax; x += stepX) { // TODO: x += step accumulates error. might wanna do it differently.
-                if (rulerTextIndex >= rulerTexts.length) break;
-                let rulerText = rulerTexts[rulerTextIndex++];
-                
-                if (Math.abs(x) < stepX*1e-3) x = 0; // Avoid -0
-                
-                rulerText.innerHTML = renderRuler(x, fractionDigitsX, logZoomX);
-                let rect = rulerText.getBoundingClientRect();
+            if (rulersCheckbox.checked) {
+                let rulerTextIndex = 0;
+                for (let x = xmin; x <= xmax; x += stepX) { // TODO: x += step accumulates error. might wanna do it differently.
+                    if (rulerTextIndex >= rulerTexts.length) break;
+                    let rulerText = rulerTexts[rulerTextIndex++];
+                    
+                    if (Math.abs(x) < stepX*1e-3) x = 0; // Avoid -0
+                    
+                    rulerText.innerHTML = renderRuler(x, fractionDigitsX, logZoomX);
+                    let rect = rulerText.getBoundingClientRect();
 
-                let left = +(x/cameraW - cameraX) / zoomY * canvas.height + canvas.width  * 0.5;
-                left = (left - rect.width * (Math.abs(x) < 1e-3 ? 1.0 : 0.5))/window.devicePixelRatio;
-                
-                let top = y0;
+                    let left = +(x/cameraW - cameraX) / zoomY * canvas.height + canvas.width  * 0.5;
+                    left = (left - rect.width * (Math.abs(x) < 1e-3 ? 1.0 : 0.5))/window.devicePixelRatio;
+                    
+                    let top = y0;
 
-                rulerText.style.left = `${left}px`;
-                rulerText.style.top = `${clamp(top, 0, canvas.height - rect.height)}px`;
+                    rulerText.style.left = `${left}px`;
+                    rulerText.style.top = `${clamp(top, 0, canvas.height - rect.height)}px`;
+                }
+                for (let y = ymax; y <= ymin; y += stepY) { // TODO: y += step accumulates error. might wanna do it differently.
+                    if (rulerTextIndex >= rulerTexts.length) break;
+                    if (Math.abs(y) < stepY*1e-3) continue;
+                    let rulerText = rulerTexts[rulerTextIndex++];
+                    
+                    rulerText.innerHTML = renderRuler(y, fractionDigitsY, logZoomY);
+                    let rect = rulerText.getBoundingClientRect();
+
+                    let left = x0 - rect.width;
+                    
+                    let top = -(y - cameraY) / zoomY * canvas.height + canvas.height  * 0.5;
+                    top = (top - rect.height*0.5)/window.devicePixelRatio;
+
+                    rulerText.style.left = `${clamp(left, 0, canvas.width - rect.width)}px`;
+                    rulerText.style.top = `${top}px`;
+                }
+                for (let i = rulerTextIndex; i < rulerTexts.length; ++i) {
+                    let rulerText = rulerTexts[i];
+                    rulerText.style.top = `-1000px`;
+                }
             }
-            for (let y = ymax; y <= ymin; y += stepY) { // TODO: y += step accumulates error. might wanna do it differently.
-                if (rulerTextIndex >= rulerTexts.length) break;
-                if (Math.abs(y) < stepY*1e-3) continue;
-                let rulerText = rulerTexts[rulerTextIndex++];
-                
-                rulerText.innerHTML = renderRuler(y, fractionDigitsY, logZoomY);
-                let rect = rulerText.getBoundingClientRect();
-
-                let left = x0 - rect.width;
-                
-                let top = -(y - cameraY) / zoomY * canvas.height + canvas.height  * 0.5;
-                top = (top - rect.height*0.5)/window.devicePixelRatio;
-
-                rulerText.style.left = `${clamp(left, 0, canvas.width - rect.width)}px`;
-                rulerText.style.top = `${top}px`;
-            }
-            for (let i = rulerTextIndex; i < rulerTexts.length; ++i) {
-                let rulerText = rulerTexts[i];
-                rulerText.style.top = `-1000px`;
-            }
-        }
-
-        {
-            let fractionDigitsX = clamp(-logZoomX + 2, 0, 100);
-            let fractionDigitsY = clamp(-logZoomY + 2, 0, 100);
-            let maxChars       = Math.max(fractionDigitsX, ceil(log10(Math.max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))));
-
-            let cr = canvas.getBoundingClientRect();
-            let x = mouseX - cr.left;
-            let y = mouseY - cr.top;
-            x = (( (x - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigitsX);
-            y = ((-(y - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigitsY);
-            cursorCoordsTextX.innerText = "x="+x;
-            cursorCoordsTextX.style = `
-                position: absolute;
-                left: ${60}px;
-            `;
-
-            cursorCoordsTextY.innerText = "y="+y + "   ";
-            cursorCoordsTextY.style = `
-                position: absolute;
-                left: ${100 + maxChars*10}px;
-            `;
-        }
-        if (cursorCoordsOnAxisCheckbox.checked) {
-            let fractionDigitsX = clamp(-logZoomX + 2, 0, 100);
-            let fractionDigitsY = clamp(-logZoomY + 2, 0, 100);
-
-            let cr = canvas.getBoundingClientRect();
-
-            cursorXRulerText.innerText = (( ((mouseX - cr.left) - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigitsX);
-            cursorYRulerText.innerText = ((-((mouseY - cr.top ) - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigitsY);
 
             {
-                let rect = cursorXRulerText.getBoundingClientRect();
-                cursorXRulerText.style.left = `${mouseX - cr.left}px`;
-                cursorXRulerText.style.top = `${clamp(y0, 0, canvas.height - rect.height)}px`;
+                let fractionDigitsX = clamp(-logZoomX + 2, 0, 100);
+                let fractionDigitsY = clamp(-logZoomY + 2, 0, 100);
+                let maxChars       = Math.max(fractionDigitsX, ceil(log10(Math.max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))));
+
+                let cr = canvas.getBoundingClientRect();
+                let x = mouseX - cr.left;
+                let y = mouseY - cr.top;
+                x = (( (x - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigitsX);
+                y = ((-(y - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigitsY);
+                cursorCoordsTextX.innerText = "x="+x;
+                cursorCoordsTextX.style = `
+                    position: absolute;
+                    left: ${60}px;
+                `;
+
+                cursorCoordsTextY.innerText = "y="+y + "   ";
+                cursorCoordsTextY.style = `
+                    position: absolute;
+                    left: ${100 + maxChars*10}px;
+                `;
             }
-            {
-                let rect = cursorYRulerText.getBoundingClientRect();
-                cursorYRulerText.style.left = `${clamp(x0, 0, canvas.width - rect.width)}px`;
-                cursorYRulerText.style.top = `${mouseY - cr.top}px`;
+            if (cursorCoordsOnAxisCheckbox.checked) {
+                let fractionDigitsX = clamp(-logZoomX + 2, 0, 100);
+                let fractionDigitsY = clamp(-logZoomY + 2, 0, 100);
+
+                let cr = canvas.getBoundingClientRect();
+
+                cursorXRulerText.innerText = (( ((mouseX - cr.left) - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigitsX);
+                cursorYRulerText.innerText = ((-((mouseY - cr.top ) - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigitsY);
+
+                {
+                    let rect = cursorXRulerText.getBoundingClientRect();
+                    cursorXRulerText.style.left = `${mouseX - cr.left}px`;
+                    cursorXRulerText.style.top = `${clamp(y0, 0, canvas.height - rect.height)}px`;
+                }
+                {
+                    let rect = cursorYRulerText.getBoundingClientRect();
+                    cursorYRulerText.style.left = `${clamp(x0, 0, canvas.width - rect.width)}px`;
+                    cursorYRulerText.style.top = `${mouseY - cr.top}px`;
+                }
             }
+            
+            canvas.hidden = false;
+
+            requestAnimationFrame(animate);
         }
         
-        canvas.hidden = false;
+        animate();
+    })();
 
-        requestAnimationFrame(animate);
-    }
-    
-    animate();
-
-    
+        
     function initStorage() {
         inMemoryStorage = {};
         let json = localStorage.getItem("storage");
@@ -2505,5 +2564,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             return mapFn(object[key]);
         });
     }
+
+    function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 </script>
 </html>
