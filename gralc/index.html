@@ -20,6 +20,7 @@ Or you can equate two expressions, like <code>(sin(x) = sin(y))</code> (parens a
 You can assign an output of a graph to a name by prepending <code>name = </code>, like <code>a = x*x</code>. You can use that name in other graphs.
 You can create functions by appending a list of parameters to a graph's name, e.g. <code>f(x,a,b) = x*a + b</code>.
 Until there is a better way, you can get a derivative of graph <code>f</code> by doing <code>ddx(f)/ddx(x)</code>.
+You can limit the range of a graph/function by apppending <code>[limitMin, limitMax]</code>. It is limited though as it only applies to x of graphs and first parameters of functions. Custom limits can be done by setting the output to a huge value, e.g. like this: <code>mix(f(x), 1e30, step(x, limitMin) + step(limitMax, x))</code>
 
 <h3>Sliders</h3>
 Type <code>name = number</code> where <code>name</code> is any valid GLSL identifier and <code>number</code> is any integer/float literal.
@@ -37,7 +38,7 @@ You can reorder lines by dragging the leftmost box.
 <code>iCamera.w</code> - X scale. E.g. value of 2 will squish everything so you see more.
 <code>iTime</code>/<code>time</code> - Seconds elapsed since the start
 
-<h3>Functions</h3>
+<h3>Builtin Functions</h3>
 Both GLSL and HLSL function names are available.
 <code>map(x,a,b,c,d)</code> - maps x from range [a; b] to range [c; d]
 <code>mapc(x,a,b,c,d)</code> - additionally clamps x
@@ -61,6 +62,19 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 * Show point on graph closest to mouse?
 * Analytical derivatives? Parse graph expression and build derivative out of that. Might improve quality of discontinuous funcs. Also should improve GLSL compiler speed since it wont do five times more inlining work.
 * Quality options? Low - ddx/ddy, high - analytic.
+* Improve limits
+    * Currently they work only for x axis in graphs;
+    * Limits for multidimensional functions.
+    Instead of doing [limitMin; limitMax] one or more times with attached parameter, do a followup series of logical operations, e.g.:
+    f(x) = x*x where x > -1 && x < 1
+* Groups.
+    * Move together.
+    * Show/Hide all at once.
+* Remove 20 input limit.
+* Embeddable mode (iframe).
+* Don't recompile when changing slider text.
+* Allow functions to reference x and y even if they are not in parameters.
+* Proper syntax highlighting. Function calls, numbers, braces with levels of nestedness, dim commas, comments.
 * Should be able to update a graph while the other ones fail to compile. One shader per graph? Harder to reference though. Or could just reevaluate.
 * Improve precision. 32-bit floats are not that accurate as I want. Doing more than that would require actually transpiling expressions to work on two floats at once. <a href="https://hal.science/hal-00021443">https://hal.science/hal-00021443</a>
             </div>
@@ -149,6 +163,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     .line > * {
         flex: 1;
+    }
+    .line > input[type="text"] {
+        /*font-family: monospace;*/
     }
     .knurl {
         min-width: 16px;
@@ -392,9 +409,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 </style>
 <script>
     "use strict";
+    const enableAsserts = true;
+
     helpPanel.hidden = true;
 
-    
+
     
     class ToolPanelLine extends HTMLElement {
         constructor() {
@@ -697,8 +716,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         const deltaY = e.wheelDeltaY / 120.0;
 
         const step = 0.25;
-        const pointX =  ((e.clientX - canvas.getBoundingClientRect().left) * window.devicePixelRatio - canvas.width  * 0.5) / canvas.height * exp2(cameraZ) + cameraX;
-        const pointY = -((e.clientY - canvas.getBoundingClientRect().top ) * window.devicePixelRatio - canvas.height * 0.5) / canvas.height * exp2(cameraZ) + cameraY;
+        const pointX =  ((e.clientX - canvas.getBoundingClientRect().left) * window.devicePixelRatio - canvas.width  * 0.5) / canvas.height * exp2(cameraZ) * cameraW + cameraX;
+        const pointY = -((e.clientY - canvas.getBoundingClientRect().top ) * window.devicePixelRatio - canvas.height * 0.5) / canvas.height * exp2(cameraZ)           + cameraY;
 
         const d = deltaY * step * window.devicePixelRatio;
 
@@ -743,7 +762,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             resizeCanvas();
         }
         if (isPanning) {
-            targetCameraX -= (e.clientX - panPrevX) * window.devicePixelRatio / canvas.height * exp2(cameraZ);
+            targetCameraX -= (e.clientX - panPrevX) * window.devicePixelRatio / canvas.height * exp2(cameraZ) * cameraW;
             targetCameraY += (e.clientY - panPrevY) * window.devicePixelRatio / canvas.height * exp2(cameraZ);
             panPrevX = e.clientX;
             panPrevY = e.clientY;
@@ -1091,14 +1110,17 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         input.opacity = defaultOpacity;
         input.graphLook = defaultGraphLook;
     }
+    
+    const nullLocation = {begin: 0, end: 0};
+
     function updateInput(input) {
         input.showType = 'z';
         input.isNamedByUser = false;
-        input.nameTokens = [];
-        input.tokens = [];
         input.params = [];
         input.comment = "";
-        input.isInequality = false;
+        input.isOrderedComparison = false;
+        input.isComparison = false;
+        input.failedToUpdate = false;
         
         let text = input.text.value;
 
@@ -1108,67 +1130,114 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             text = text.substring(0, commentIndex);
         }
 
-        let lt = text.indexOf("<");
-        let gt = text.indexOf(">");
-        let le = text.indexOf("<=");
-        let ge = text.indexOf(">=");
-        
-        if (text.trim() == "") {
-            clearInput(input);
-        } else if (lt != -1 || gt != -1 || le != -1 || ge != -1) {
-            let tok =
-                le != -1 ? '<=' : // Important to check longer tokens first.
-                ge != -1 ? '>=' :
-                lt != -1 ? '<' :
-                gt != -1 ? '>' :
-                undefined;
+        let tokens = input.tokens = tokenize(text);
+        let ast = input.ast = {kind: 'none'};
+        if (tokens.length) {
+            let result = tokensToAst(tokens);
+            if (result.valid) {
+                ast = input.ast = result.expr;
+                if (result.min) {
+                    input.rangeMin = astToNumber(result.min);
+                    input.rangeMax = astToNumber(result.max);
 
-            let [lhs, rhs] = text.split(tok).map(s => s.trim());
-            input.type = 'graph';
-            input.name = `f${input.index}`;
-            input.expr = `(${lhs})-(${rhs})`;
-            input.showType = tok;
-            input.isInequality = true;
-        } else if (text.includes("=")) {
-            // TODO: rename to lhs and rhs
-            let [name, value] = text.split("=").map(s => s.trim());
-            let nameTokens = tokenize(name);
-            input.nameTokens = nameTokens;
-            let constant = parseConstant(value);
-            if (nameTokens.length == 1 && !isNaN(constant)) {
-                input.type = 'slider';
-                input.name = name;
-                input.slider.valueAsNumber = constant;
-                input.min.value = input.slider.min = Math.min(input.min.value, constant);
-                input.max.value = input.slider.max = Math.max(input.max.value, constant);
-            } else {
-                if (nameTokens.length == 1 && isNaN(+name)) {
-                    input.type = 'graph';
-                    input.name = name;
-                    input.expr = value;
-                    input.isNamedByUser = true;
-                } else if (nameTokens[1] === "(" && nameTokens[nameTokens.length-1] === ")") {
-                    input.type = 'function';
-                    input.name = nameTokens[0];
-                    input.params = [...nameTokens].splice(2, nameTokens.length-3).filter(t => t !== ",");
-                    input.expr = value;
-                    input.isNamedByUser = true;
+                    if (isNaN(input.rangeMin) || isNaN(input.rangeMax)) {
+                        input.type = 'none';
+                        console.error("Invalid range");
+                        input.message.value = "Invalid range";
+                        input.message.hidden = false;
+                        input.failedToUpdate = true;
+                        return;
+                    }
                 } else {
-                    input.type = 'graph';
-                    input.name = `f${input.index}`;
-                    input.expr = `(${name})-(${value})`;
-                    input.showType = '=0';
+                    input.rangeMin = -1e30;
+                    input.rangeMax = +1e30;
                 }
+            } else {
+                input.type = 'none';
+                console.error("Failed to parse");
+                input.message.value = "Failed to parse";
+                input.message.hidden = false;
+                input.failedToUpdate = true;
+                return;
             }
-        } else {
-            input.type = 'graph';
-            input.name = `f${input.index}`;
-            input.nameTokens = [input.name];
-            input.expr = text;
         }
 
-        if (input.type == 'graph' || input.type == 'function') {
-            input.tokens = tokenize(input.expr);
+        function isOrderedComparison(op) {
+            switch (op) {
+                case '<':
+                case '>':
+                case '<=':
+                case '>=':
+                    return true;
+            }
+            return false;
+        }
+
+        if (tokens.length == 0) {
+            // Don't call clearInput as it is convenient that the colors, etc., are remembered.
+            input.type = 'none';
+            input.name = "";
+            input.expr = "";
+        } else if (ast.kind == 'binary' && isOrderedComparison(ast.operation)) {
+            input.type = 'graph';
+            input.name = `f${input.index}`;
+            input.expr = binaryCreate();
+            input.expr.operation = '-';
+            input.expr.left = ast.left;
+            input.expr.right = ast.right;
+            input.showType = ast.operation;
+            input.isComparison = true;
+            input.isOrderedComparison = true;
+        } else if (ast.kind == 'binary' && ast.operation == '=') {
+            if (ast.left.kind == 'ident') {
+                if (ast.right.kind == 'literal') {
+                    // name = constant
+                    input.type = 'slider';
+                    input.name = ast.left.name;
+                    input.slider.valueAsNumber = ast.right.value;
+                    input.min.value = input.slider.min = Math.min(+input.min.value, ast.right.value);
+                    input.max.value = input.slider.max = Math.max(+input.max.value, ast.right.value);
+                } else {
+                    // name = expr
+                    input.type = 'graph';
+                    input.name = ast.left.name;
+                    input.expr = ast.right;
+                    input.isNamedByUser = true;
+                }
+            } else if (ast.left.kind == 'call' && ast.left.arguments.every(a => a.kind == 'ident')) {
+                // name(a,b,c) = expr
+                input.type = 'function';
+                assert(ast.left.callable.kind == 'ident');
+                input.name = ast.left.callable.name;
+                input.params = [...ast.left.arguments.map(a => a.name)];
+                input.expr = ast.right;
+                input.isNamedByUser = true;
+            } else {
+                // expr = expr
+                input.type = 'graph';
+                input.name = `f${input.index}`;
+                input.expr = binaryCreate();
+                input.expr.operation = '-';
+                input.expr.left = ast.left;
+                input.expr.right = ast.right;
+                input.showType = '=0';
+                input.isComparison = true;
+            }
+        } else if (ast.kind == 'binary' && ast.operation == '==') {
+            // expr == expr
+            input.type = 'graph';
+            input.name = `f${input.index}`;
+            input.expr = binaryCreate();
+            input.expr.operation = '-';
+            input.expr.left = ast.left;
+            input.expr.right = ast.right;
+            input.showType = '=0';
+            input.isComparison = true;
+        } else {
+            // expr
+            input.type = 'graph';
+            input.name = `f${input.index}`;
+            input.expr = ast;
         }
 
         if (input.type == 'none') {
@@ -1187,7 +1256,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.min.hidden = false;
             input.max.hidden = false;
         } else if (input.type == 'function') {
-            input.showPicker.hidden = true;
+            input.showPicker.hidden = false;
             input.slider.hidden = true;
             input.min.hidden = true;
             input.max.hidden = true;
@@ -1262,6 +1331,10 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 if (+input.max.value  != defaultSliderMax  ) write(`i${input.index}b`, input.max.value );
             } else if (input.type == 'function') {
                 write(`i${input.index}t`, input.type)
+                write(`i${input.index}c`, input.color);
+                if (input.thickness != defaultThickness) write(`i${input.index}w`, input.thickness);
+                if (input.opacity   != defaultOpacity  ) write(`i${input.index}o`, input.opacity  );
+                if (input.graphLook != defaultGraphLook) write(`i${input.index}l`, input.graphLook);
                 write(`i${input.index}e`, input.text.value);
             }
         }
@@ -1412,67 +1485,70 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             return end - originalStart;
         }
 
-        // Hide message reports
         for (let input of inputs) {
             input.message.hidden = true;
             input.createSliderButton.hidden = true;
+            input.dependencies = [];
+        }
+
+        for (let input of inputs) {
+            if (input.failedToUpdate)
+                return;
         }
 
         const clearTime = endProfileSection();
 
         // Compute dependencies
+
         for (let input of inputs) {
-            if (input.type == 'graph') {
+            if (input.type == 'graph' || input.type == 'function') {
                 input.dependsOnX = false;
                 input.dependsOnY = false;
+
+                
                 if (input.name == "x") {
                     input.dependsOnY = true;
                 } else if (input.name == "y") {
                     input.dependsOnX = true;
-                } else {
-                    if (input.tokens.includes('x')) input.dependsOnX = true;
-                    if (input.tokens.includes('y')) input.dependsOnY = true;
-                    if (input.tokens.includes('p')) { input.dependsOnX = true; input.dependsOnY = true; }
-                    if (input.nameTokens.length > 1) { input.dependsOnX = true; input.dependsOnY = true; }
-                    if (input.isInequality) { input.dependsOnX = true; input.dependsOnY = true; }
-                }
-            }
-            input.dependencies = [];
-        }
-        for (let input of inputs) {
-            if (input.type == 'graph') {
-                for (let token of input.tokens) {
-                    const found = inputs.find(other => other.type == 'graph' && other.name != "x" && other.name != "y" && other.name == token);
-                    if (found !== undefined) {
-                        input.dependsOnX ||= found.dependsOnX;
-                        input.dependsOnY ||= found.dependsOnY;
-                    }
-                }
-
-                if (!input.dependsOnX && !input.dependsOnY) {
+                } else if (input.isComparison) {
                     input.dependsOnX = true;
+                    input.dependsOnY = true;
                 }
+                
+                visit(input.expr, node => {
+                    if (node.kind == 'ident') {
+                        if (input.params.includes(node.name))
+                            return;
 
-                if (input.nameTokens.length == 1 && input.name != "x" && input.name != "y") {
-                    if (input.tokens.includes(input.name)) {
-                        input.message.value = "Can't reference itself";
-                        input.message.hidden = false;
-                        return;
-                    }
-                }
-            }
-            
+                        if (node.name == 'x') {
+                            input.dependsOnX = true;
+                        } else if (node.name == 'y') {
+                            input.dependsOnY = true;
+                        } else if (node.name == 'p') {
+                            input.dependsOnX = true;
+                            input.dependsOnY = true;
+                        } else {
+                            let found = inputs.find(other => other.name == node.name);
+                            if (found) {
+                                if (found === input) {
+                                    input.message.value = "Can't reference itself";
+                                    input.message.hidden = false;
+                                    return;
+                                }
 
-            if (input.nameTokens.length == 1 || input.type == 'function') {
-                for (let other of inputs) {
-                    if (input === other)
-                        continue;
-
-                    if (other.type == 'graph') {
-                        if (other.nameTokens.includes(input.name) || other.tokens.includes(input.name)) {
-                            other.dependencies.push(input);
+                                input.dependsOnX ||= found.dependsOnX;
+                                input.dependsOnY ||= found.dependsOnY;
+                                input.dependencies.push(found);
+                            }
                         }
                     }
+                });
+                if (!input.message.hidden)
+                    return;
+
+                
+                if (!input.dependsOnX && !input.dependsOnY) {
+                    input.dependsOnX = true;
                 }
             }
         }
@@ -1572,16 +1648,42 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
         for (let input of inputs) {
             if (input.type == 'graph' || input.type == 'function') {
-                input.processedTokens = [];
-                for (let token of input.tokens) {
-                    let found = inputs.find(other => other.type == 'graph' && other.name == token && other.name != 'x' && other.name != 'y');
-                    if (found) {
-                        input.processedTokens.push('eval_' + token, '(', 'p', ')');
-                    } else {
-                        input.processedTokens.push(token);
+                // input.processedTokens = [];
+                // for (let token of input.tokens) {
+                //     if (input.type == 'function' && input.params.includes(token.string)) {
+                //         input.processedTokens.push(token.string);
+                //         continue;
+                //     }
+                //     let found = inputs.find(other => other.type == 'graph' && other.name == token.string && other.name != 'x' && other.name != 'y');
+                //     if (found) {
+                //         input.processedTokens.push('eval_' + token.string, '(', 'p', ')');
+                //     } else {
+                //         input.processedTokens.push(token.string);
+                //     }
+                // }
+                function astToGlsl(ast) {
+                    switch (ast.kind) {
+                        case 'none': return '';
+                        case 'ident': {
+                            let dep = input.dependencies.find(i => i.name == ast.name);
+                            if (dep) {
+                                if (dep.type == 'graph') {
+                                    return `eval_${ast.name}(p)`;
+                                }
+                            }
+                            return ast.name;
+                        }
+                        case 'literal': return ast.string;
+                        case 'unary': return `${ast.operation}(${astToGlsl(ast.expression)})`;
+                        case 'binary': return `(${astToGlsl(ast.left)} ${ast.operation} ${astToGlsl(ast.right)})`;
+                        case 'call': {
+                            assert(ast.callable.kind == 'ident');
+                            return `${ast.callable.name}(${ast.arguments.map(a => astToGlsl(a)).join(', ')})`;
+                        }
                     }
+                    assert(false, `unhandled ast kind: ${ast.kind}`);
                 }
-                input.processedExpr = input.processedTokens.join('');
+                input.processedExpr = astToGlsl(input.expr);
             }
         }
 
@@ -1605,16 +1707,34 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         let sliderUniformDefinitions = "";
 
         for (let input of reorderedInputs) {
+            let fieldExpr;
+            function computeDerivativeLength(d, f) {
+                return `
+                    float ${d}; {
+                        vec2 _uvd, _rmd, _rpd;
+                        _uvd = _uv + vec2(+_duv.x,0); _rpd.x = ${fieldExpr('_uvd', f)};
+                        _uvd = _uv + vec2(-_duv.x,0); _rmd.x = ${fieldExpr('_uvd', f)};
+                        _uvd = _uv + vec2(0,+_duv.y); _rpd.y = ${fieldExpr('_uvd', f)};
+                        _uvd = _uv + vec2(0,-_duv.y); _rmd.y = ${fieldExpr('_uvd', f)};
+                        vec4 _d12 = vec4(_r - _rmd, _rpd - _r);
+                        vec4 _l = vec4(length(_d12.xy), length(_d12.xw), length(_d12.zy), length(_d12.zw));
+                        ${d} = min(min(_l.x, _l.y), min(_l.z, _l.w));
+                        //${d} = dot(_l, vec4(0.25));
+                        //${d} = length(_ddxy(_r));
+                        ${d} = max(${d}, 1e-10);
+                    }
+                `;
+            }
+
             if (input.type == 'graph') {
                 graphDefinitions += `
                     float eval_${input.name}(vec2 p) {
                         float x = p.x;
                         float y = p.y;
-                        return ${input.processedExpr};
+                        return mix(${input.processedExpr}, 1e30, step(x, ${input.rangeMin.toFixed(10)}) + step(${input.rangeMax.toFixed(10)}, x));
                     }
                 `.replace(/\s+/g, " ") + "\n";
 
-                let fieldExpr;
                 let isZ = false;
                 if (input.dependsOnX && input.dependsOnY) {
                     fieldExpr = (uv, f) => f;
@@ -1627,24 +1747,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     fieldExpr = (uv, f) => f;
                 }
 
-                function computeDerivativeLength(d) {
-                    return `
-                        float ${d}; {
-                            vec2 _uvd, _rmd, _rpd;
-                            _uvd = _uv + vec2(+_duv.x,0); _rpd.x = ${fieldExpr('_uvd', `eval_${input.name}(_uvd)`)};
-                            _uvd = _uv + vec2(-_duv.x,0); _rmd.x = ${fieldExpr('_uvd', `eval_${input.name}(_uvd)`)};
-                            _uvd = _uv + vec2(0,+_duv.y); _rpd.y = ${fieldExpr('_uvd', `eval_${input.name}(_uvd)`)};
-                            _uvd = _uv + vec2(0,-_duv.y); _rmd.y = ${fieldExpr('_uvd', `eval_${input.name}(_uvd)`)};
-                            vec4 _d12 = vec4(_r - _rmd, _rpd - _r);
-                            vec4 _l = vec4(length(_d12.xy), length(_d12.xw), length(_d12.zy), length(_d12.zw));
-                            ${d} = min(min(_l.x, _l.y), min(_l.z, _l.w));
-                            //${d} = dot(_l, vec4(0.25));
-                            //${d} = length(_ddxy(_r));
-                            ${d} = max(${d}, 1e-10);
-                        }
-                    `;
-                }
-
                 graphCode += `{`;
                 if (isZ) {
                     graphCode += `
@@ -1654,9 +1756,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         _c.w *= _graph_opacity[${input.index}];
                         float _thick = _graph_thickness[${input.index}];
                             
-                        ${computeDerivativeLength('_d')}
+                        ${computeDerivativeLength('_d', `eval_${input.name}(_uvd)`)}
                     `;
-                    if (input.isInequality) {
+                    if (input.isOrderedComparison) {
                         graphCode += `
                             _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * clamp01(_r / ${input.showType=='<'||input.showType=='<='?'-':'+'}_d) * 0.5);
                             _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
@@ -1704,7 +1806,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         float _e = eval_${input.name}(_uv);
                         float _r = ${fieldExpr('_uv', '_e')};
                         if (!isnan(_r) && abs(_r)<1e20) {
-                            ${computeDerivativeLength('_d')}
+                            ${computeDerivativeLength('_d', `eval_${input.name}(_uvd)`)}
                             ${false ? 
                             // Don't like how it looks
                             `
@@ -1725,11 +1827,56 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 }
                 graphCode += `}`;
             } else if (input.type == 'function') {
-                graphDefinitions += `
-                    float ${input.name}(${input.params.map(p => "float " + p).join(", ")}) {
-                        return ${input.processedExpr};
-                    }
-                `.replace(/\s+/g, " ") + "\n";
+                if (input.params.length == 0) {
+                    graphDefinitions += `
+                        float ${input.name}() {
+                            return ${input.processedExpr};
+                        }
+                    `.replace(/\s+/g, " ") + "\n";
+                } else {
+                    graphDefinitions += `
+                        float ${input.name}(${input.params.map(p => "float " + p).join(", ")}) {
+                            return mix(${input.processedExpr}, 1e30, step(${input.params[0]}, ${input.rangeMin.toFixed(10)}) + step(${input.rangeMax.toFixed(10)}, ${input.params[0]}));
+                        }
+                    `.replace(/\s+/g, " ") + "\n";
+                }
+
+                graphCode += `{`;
+
+                if (input.params.length == 1) {
+                    fieldExpr = (uv, f) => `(${uv}).y - (${f})`;
+                    graphCode += `
+                        float _e = ${input.name}(_uv.x);
+                        float _r = ${fieldExpr('_uv', '_e')};
+                        if (!isnan(_r) && abs(_r)<1e20) {
+                            ${computeDerivativeLength('_d', `${input.name}(_uvd.x)`)}
+                            float _thick = _graph_thickness[${input.index}];
+                            vec4 _c = _graph_colors[${input.index}];
+                            _c.w *= _graph_opacity[${input.index}];
+                            _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
+                        }
+                    `;
+                } else if (input.params.length == 2) {
+                    fieldExpr = (uv, f) => f;
+                    graphCode += `
+                        float _e = ${input.name}(_uv.x, _uv.y);
+                        float _r = ${fieldExpr('_uv', '_e')};
+                        if (!isnan(_r) && abs(_r)<1e20) {
+                            ${computeDerivativeLength('_d', `${input.name}(_uvd.x, _uvd.y)`)}
+                            float _thick = _graph_thickness[${input.index}];
+                            vec4 _c = _graph_colors[${input.index}];
+                            _c.w *= _graph_opacity[${input.index}];
+                            if (_graph_clamp_instead_of_fract[${input.index}] > 0.5) {
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * clamp01(_r));
+                            } else {
+                                float _m = sfrac(_r, _d);
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _m * (1.0 - fract(floor(_r*0.1)*0.5)*0.5));
+                                _outColor.xyz = mix(_outColor.xyz, _c.xyz, _c.w * _smooth0(abs(_r), _d, _thick));
+                            }
+                        }
+                    `;
+                }
+                graphCode += `}`;
             }
         }
         for (let input of inputs) {
@@ -1850,13 +1997,13 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             void main() {
                 _outColor = _backgroundColor;
 
-                float _zoom = exp2(iCamera.z);
+                vec2 _zoom = vec2(exp2(iCamera.z));
+                _zoom.x *= iCamera.w;
                 vec2 _uv = (gl_FragCoord.xy - iResolution * 0.5) / iResolution.y * _zoom + iCamera.xy;
-                _uv.x *= iCamera.w;
                 vec2 _duv = _ddxy(_uv);
 
                 {
-                    float _gridScale2 = pow(_gridDivisions, -(floor(logBase(_gridDivisions, _zoom * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
+                    float _gridScale2 = pow(_gridDivisions, -(floor(logBase(_gridDivisions, _zoom.y * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
                     float _gridScale1 = _gridScale2 * _gridDivisions;
                     
                     _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*0.3*_grid(1.0, abs(fract(_uv*_gridScale1+0.5)-0.5), _duv*_gridScale1));
@@ -2180,13 +2327,13 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
             let stepY = pow(gridDivisions, logZoomY);
             let stepX = pow(gridDivisions, logZoomX);
-            let xmin = floor(( (0             - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW/stepX)*stepX;
-            let xmax =  ceil(( (canvas.width  - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW/stepX + 1)*stepX;
-            let ymin =  ceil((-(0             - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        /stepY + 1)*stepY;
-            let ymax = floor((-(canvas.height - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        /stepY)*stepY;
+            let xmin = floor(( (0             - canvas.width  * 0.5) / canvas.height * zoomY*cameraW + cameraX)/stepX)*stepX;
+            let xmax =  ceil(( (canvas.width  - canvas.width  * 0.5) / canvas.height * zoomY*cameraW + cameraX)/stepX + 1)*stepX;
+            let ymin =  ceil((-(0             - canvas.height * 0.5) / canvas.height * zoomY         + cameraY)/stepY + 1)*stepY;
+            let ymax = floor((-(canvas.height - canvas.height * 0.5) / canvas.height * zoomY         + cameraY)/stepY)*stepY;
 
-            let x0 = (+(0 - cameraX) / zoomY * canvas.height + canvas.width  * 0.5)/window.devicePixelRatio;
-            let y0 = (-(0 - cameraY) / zoomY * canvas.height + canvas.height * 0.5)/window.devicePixelRatio;
+            let x0 = (+(0 - cameraX) / zoomY / cameraW * canvas.height + canvas.width  * 0.5)/window.devicePixelRatio;
+            let y0 = (-(0 - cameraY) / zoomY           * canvas.height + canvas.height * 0.5)/window.devicePixelRatio;
 
             function renderRuler(x, fractionDigits, logZoom) {
                 if (rulerForm != 'decimal') {
@@ -2230,7 +2377,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     rulerText.innerHTML = renderRuler(x, fractionDigitsX, logZoomX);
                     let rect = rulerText.getBoundingClientRect();
 
-                    let left = +(x/cameraW - cameraX) / zoomY * canvas.height + canvas.width  * 0.5;
+                    let left = +(x - cameraX) / zoomY / cameraW * canvas.height + canvas.width  * 0.5;
                     left = (left - rect.width * (Math.abs(x) < 1e-3 ? 1.0 : 0.5))/window.devicePixelRatio;
                     
                     let top = y0;
@@ -2268,8 +2415,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 let cr = canvas.getBoundingClientRect();
                 let x = mouseX - cr.left;
                 let y = mouseY - cr.top;
-                x = (( (x - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigitsX);
-                y = ((-(y - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigitsY);
+                x = (( (x - canvas.width  * 0.5) / canvas.height * zoomY * cameraW + cameraX)).toFixed(fractionDigitsX);
+                y = ((-(y - canvas.height * 0.5) / canvas.height * zoomY           + cameraY)).toFixed(fractionDigitsY);
                 cursorCoordsTextX.innerText = "x="+x;
                 cursorCoordsTextX.style = `
                     position: absolute;
@@ -2288,8 +2435,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
                 let cr = canvas.getBoundingClientRect();
 
-                cursorXRulerText.innerText = (( ((mouseX - cr.left) - canvas.width  * 0.5) / canvas.height * zoomY + cameraX)*cameraW).toFixed(fractionDigitsX);
-                cursorYRulerText.innerText = ((-((mouseY - cr.top ) - canvas.height * 0.5) / canvas.height * zoomY + cameraY)        ).toFixed(fractionDigitsY);
+                cursorXRulerText.innerText = (( ((mouseX - cr.left) - canvas.width  * 0.5) / canvas.height * zoomY * cameraW + cameraX)).toFixed(fractionDigitsX);
+                cursorYRulerText.innerText = ((-((mouseY - cr.top ) - canvas.height * 0.5) / canvas.height * zoomY           + cameraY)).toFixed(fractionDigitsY);
 
                 {
                     let rect = cursorXRulerText.getBoundingClientRect();
@@ -2374,6 +2521,19 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 ++i;
                 continue;
             }
+
+            let begin = i;
+            function pushToken(kind, string) {
+                tokens.push({
+                    kind,
+                    string,
+                    location: {
+                        begin,
+                        end: i,
+                    },
+                });
+            }
+
             if (/\d/.test(char)) {
                 let number = '';
                 let encounteredDot = false;
@@ -2400,7 +2560,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         number += ".0";
                     }
                 }
-                tokens.push(number);
+                pushToken('number', number);
                 continue;
             }
             if (/[a-zA-Z_]/.test(char)) {
@@ -2408,14 +2568,350 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 while (i < input.length && /[a-zA-Z0-9_]/.test(input[i])) {
                     identifier += input[i++];
                 }
-                tokens.push(identifier);
+                pushToken('ident', identifier);
                 continue;
             }
-            tokens.push(char);
             ++i;
+
+            // HACK
+            if (char == '=' && tokens.length > 0 && tokens[tokens.length-1].string == '=' && tokens[tokens.length-1].location.end == i-1) {
+                tokens[tokens.length-1].kind =
+                tokens[tokens.length-1].string = '==';
+                tokens[tokens.length-1].location.end += 1;
+            } else {
+                pushToken(char, char);
+            }
         }
 
         return tokens;
+    }
+
+    function identCreate() {
+        return {
+            kind: 'ident',
+            location: nullLocation,
+        }
+    }
+    function literalCreate() {
+        return {
+            kind: 'literal',
+            location: nullLocation,
+        }
+    }
+    function unaryCreate() {
+        return {
+            kind: 'unary',
+            location: nullLocation,
+        }
+    }
+    function binaryCreate() {
+        return {
+            kind: 'binary',
+            location: nullLocation,
+        }
+    }
+    function callCreate() {
+        return {
+            kind: 'call',
+            location: nullLocation,
+            arguments: [],
+        }
+    }
+    function tokensToAst(tokens) {
+        function reportError(location, message) {
+            console.log(`${location.begin}: ${message}`);
+        }
+
+        const nullToken = {
+            kind: 'null',
+            location: nullLocation,
+            string: '',
+        }
+        let token = tokens[0] || nullToken;
+        let current = 0;
+
+        function next() {
+            token = tokens[++current] || nullToken;
+        }
+        function expect(expected) {
+            assert(token.kind == expected)
+        }
+        function asUnaryOperation(kind) {
+            switch (kind) {
+                case '+':  case '-':
+                    return kind;
+            }
+            return undefined;
+        }
+        function asBinaryOperation(kind) {
+            switch (kind) {
+                case '+':  case '-':  case '*':  case '/':  case '%':
+                case '&&':  case '||': 
+                case '^':  case '&':  case '|':  case '<<':  case '>>':
+                case '=':
+                case '==': case '!=': case '<': case '>': case '<=': case '>=':
+                    return kind;
+            }
+            return undefined;
+        }
+        function isRightAssociative(binaryOperation) {
+            return false;
+        }
+        function getPrecedence(binaryOperation) {
+            switch (binaryOperation) {
+                case '.':
+                    return 9;
+                case '*':
+                case '/':
+                case '%':
+                    return 7;
+                case '+':
+                case '-':
+                    return 6;
+                case '|':
+                case '&':
+                case '^':
+                case '<<':
+                case '>>':
+                    return 5;
+                case '==':
+                case '!=':
+                case '<':
+                case '<=':
+                case '>':
+                case '>=':
+                    return 4;
+                case '&&':
+                case '||':
+                    return 3;
+                case '=':
+                    return 1;
+            }
+        }
+        function parseExpression0() {
+            switch (token.kind) {
+                case '(': {
+                    let open = token.string;
+
+                    next();
+                    
+                    let expression = parseExpression();
+
+                    expect(')');
+                    let close = token.string;
+                    next();
+
+                    expression.location = {begin: open.begin, end: close.end};
+
+                    return expression;
+                }
+                case 'ident': {
+                    let name = identCreate();
+                    name.name = token.string;
+                    name.location = {...token.location};
+                    next();
+                    return name;
+                }
+                case 'number': {
+                    let literal = literalCreate();
+                    literal.location = {...token.location};
+                    literal.value = +token.string;
+                    literal.string = token.string;
+                    next();
+                    return literal;
+                }
+                default: {
+                    let operation = asUnaryOperation(token.kind);
+                    if (operation) {
+                        let unop = unaryCreate();
+                        unop.operation = operation;
+                        unop.location = {...token.location};
+                        next();
+                        
+                        unop.expression = parseExpression1();
+                        unop.location = {begin: unop.location.begin, end: unop.expression.location.end};
+                        return unop;
+                    }
+
+                    reportError(token.location, `Unexpected token ${token.kind} when parsing expression.`);
+                    throw 'fail';
+                }
+            }
+
+            assert(false, "node was not returned");
+        }
+        function parseExpression1() {
+            let expression = parseExpression0();
+            
+            while (1) {
+                switch (token.kind) {
+                    case '.': {
+                        let binary = binaryCreate();
+                        binary.operation = '.';
+                        binary.location = {...token.location};
+                        binary.left = expression;
+                        next();
+                        binary.right = parseExpression0();
+                        if (binary.right.kind != 'ident') {
+                            reportError(binary.right.location, "Only identifiers can follow a dot.");
+                            throw 'fail';
+                        }
+                        binary.location = {begin: binary.left.location.begin, end: binary.right.location.end};
+                        expression = binary;
+                        break;
+                    }
+                    case '(': {
+                        let call = callCreate();
+                        call.callable = expression;
+                        call.location = expression.location;
+
+                        next();
+                        if (token.kind != ')') {
+                            while (true) {
+                                let argument = parseExpression();
+
+                                call.arguments.push(argument);
+
+                                if (token.kind == ',') {
+                                    next();
+                                    if (token.kind == ')') {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                if (token.kind == ')') {
+                                    break;
+                                }
+
+                                reportError(token.string, "Unexpected token `{}` when parsing call argument list. Expected `,` or `)`.", token.string);
+                                throw 'fail';
+                            }
+                        }
+
+                        call.location = {begin: call.location.begin, end: token.string.end};
+
+                        next();
+                        expression = call;
+                        break;
+                    }
+                    default:
+                        return expression;
+                }
+            }
+        }
+        function parseExpression(rightPrecedence) {
+            if (rightPrecedence === undefined) rightPrecedence = 0;
+            assert(typeof rightPrecedence === 'number');
+
+            let left = parseExpression1();
+            let operation;
+            while (1) {
+                operation = asBinaryOperation(token.kind);
+
+                if (!operation || rightPrecedence >= getPrecedence(operation)) {
+                    break;
+                }
+
+                let binop = binaryCreate();
+                binop.left = left;
+                binop.operation = operation;
+                next();
+                binop.right = parseExpression(getPrecedence(operation) - isRightAssociative(operation));
+                binop.location = { begin: binop.left.location.begin, end: binop.right.location.end };
+                left = binop;
+            }
+
+            return left;
+        }
+
+        try {
+            let result = {};
+            result.valid = false;
+            result.expr = parseExpression();
+            if (token.string == '[') {
+                next();
+                result.min = parseExpression1();
+                expect(',');
+                next();
+                result.max = parseExpression1();
+                expect(']')
+                next();
+            }
+            if (current != tokens.length) {
+                console.error("Unparsed tokens remaining: ", tokens.slice(current));
+                return result;
+            }
+            result.valid = true;
+            return result;
+        }
+        catch (thrown) {
+            if (thrown != 'fail') {
+                console.error("Unexpected thrown value:", thrown);
+            }
+            return {valid: false};
+        }
+    }
+    function astToString(ast) {
+        switch (ast.kind) {
+            case 'none': return '';
+            case 'ident': return ast.name;
+            case 'literal': return ast.string;
+            case 'unary': return `${ast.operation}(${astToString(ast.expression)})`;
+            case 'binary': return `(${astToString(ast.left)} ${ast.operation} ${astToString(ast.right)})`;
+            case 'call':
+                assert(ast.callable.kind == 'ident');
+                return `${ast.callable.name}(${ast.arguments.map(a => astToString(a)).join(', ')})`;
+        }
+        assert(false, `unhandled ast kind: ${ast.kind}`);
+    }
+    function astToNumber(ast) {
+        switch (ast.kind) {
+            case 'none':
+                case 'ident':
+                return NaN;
+            case 'literal':
+                return ast.value;
+            case 'unary':
+                switch (ast.operation) {
+                    case '+': return +astToNumber(ast.expression);
+                    case '-': return -astToNumber(ast.expression);
+                }
+                break;
+            case 'binary':
+                switch (ast.operation) {
+                    case '+': return astToNumber(ast.left) + astToNumber(ast.right);
+                    case '-': return astToNumber(ast.left) - astToNumber(ast.right);
+                    case '*': return astToNumber(ast.left) * astToNumber(ast.right);
+                    case '/': return astToNumber(ast.left) / astToNumber(ast.right);
+                }
+                break;
+        }
+        assert(false, `unhandled ast kind: ${ast.kind}`);
+    }
+    function visit(ast, callback) {
+        callback(ast);
+        switch (ast.kind) {
+            case 'none':
+            case 'ident':
+            case 'literal':
+                break;
+            case 'unary':
+                visit(ast.expression, callback);
+                break;
+            case 'binary':
+                visit(ast.left, callback);
+                visit(ast.right, callback);
+                break;
+            case 'call':
+                visit(ast.callable, callback);
+                for (let arg of ast.arguments) {
+                    visit(arg, callback);
+                }
+                break;
+            default:
+                assert(false, `unhandled ast kind: ${ast.kind}`);
+                break;
+        }
     }
 
     function exp2(x) { return Math.pow(2, x); }
@@ -2451,6 +2947,12 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         }
         catch {
 
+        }
+    }
+    function assert(cond, message) {
+        if (enableAsserts && !cond) {
+            if (!message) message = '';
+            throw new Error(`Assertion failed: ${message}`);
         }
     }
 
@@ -2566,5 +3068,59 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
 
     function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+    
+/*
+
+TODO: make a page with all these bits visualized. iframes?
+
+float smoothstep(float x) {
+	return (3.0f-2.0f*x)*(x*x);
+}
+float logBase(float base, float x) {
+	return log2(x) / log2(base);
+}
+
+
+// t - [0; 1]
+// Properties:
+//   f (0) = 0
+//   f'(0) = 0
+//   f (t) = 0.5
+//   f (1) = 1
+//   f'(1) = 0
+// When t is 0.5 this is a regular cubic smoothstep, otherwise the cubic is raised to some power that is greater than 1.
+// Cons:
+// - Bad behaviour at extremes of t:
+//   when t is close to 0, most of the result becomes 1. E.g. with t=0.1, y>0.999 at x>0.3237, so about two thirds of the graph is flat 1.
+//  
+float smoothstepCustomMid(float x, float t) {
+	// One-Liner:
+	// t < 0.5 ? 1-pow(smoothstep(1-x), logBase(smoothstep(1-t), 0.5)) : pow(smoothstep(x), logBase(smoothstep(t), 0.5))
+
+    if (t <= 0.0f || t >= 1.0f)
+        return step(t, x);
+	bool h = t < 0.5f;
+	x = h ? 1.0f - x : x;
+	t = h ? 1.0f - t : t;
+	x = pow(smoothstep(x), logBase(smoothstep(t), 0.5f));
+	x = h ? 1.0f - x : x;
+	return x;	
+}
+
+
+
+// k - [3; inf]
+// Properties:
+//   f (0) = 0
+//   f'(0) = 0
+//   f (1) = 1
+//   f'(1) = 0
+// The bigger k is, the later x will rise up to 1.
+float smoothstepLate(float x, float k) {
+    return pow(x, k - 1.0f) * k - pow(x, k) * (k - 1.0f);
+}
+
+*/
 </script>
 </html>
