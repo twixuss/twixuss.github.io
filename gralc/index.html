@@ -1256,7 +1256,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             input.min.hidden = false;
             input.max.hidden = false;
         } else if (input.type == 'function') {
-            input.showPicker.hidden = false;
+            input.showPicker.hidden = input.params.length != 1 && input.params.length != 2;
             input.slider.hidden = true;
             input.min.hidden = true;
             input.max.hidden = true;
