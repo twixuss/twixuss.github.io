@@ -86,8 +86,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     Don't forget to store that checkbox in url, so it can be started on load.
             </div>
             <div id="graphToolPanel">
-                <float-input id="cameraWInput"       var="targetCameraW" label="X scale"        value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></float-input>
                 <float-input id="timeSpeedInput"     var="timeSpeed"     label="Time speed"     value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></float-input>
+                <float-input id="cameraWInput"       var="targetCameraW" label="X scale"        value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></float-input>
+                <input id="xLogCheckbox" type="checkbox"></input>
+                <label for="xLogCheckbox">X</label>
+                <input id="yLogCheckbox" type="checkbox"></input>
+                <label for="yLogCheckbox">Y</label>
+                Log scale
+                <br>
                 <input id="gridCheckbox" type="checkbox" checked="true"></input>
                 <label for="gridCheckbox">Show grid</label>
                 <float-input id="gridDivisionsInput" var="gridDivisions" label="Grid divisions" value="10" min= "2" max="16" step="1"    shape="linear"></float-input>
@@ -96,9 +102,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 <button onclick="rulerForm='decimal'">Decimal</button>
                 <button onclick="rulerForm='rational'">Rational</button>
                 <button onclick="rulerForm='rational-gcd'">Rational GCD</button>
-                <br>
-                <span id="cursorCoordsText" style="line-height: 32px;">Cursor: <span id="cursorCoordsTextX"></span><span id="cursorCoordsTextY"></span></span>
-                <br>
+                <div style="height: 48px; display: flex; flex-direction: column;">
+                    <div style="flex: 1;"></div>
+                    <span id="cursorCoordsText">Cursor: </span>
+                    <div style="flex: 1;"></div>
+                </div>
                 <input id="cursorCoordsOnAxisCheckbox" type="checkbox"></input>
                 <label for="cursorCoordsOnAxisCheckbox">Cursor on axes</label>
             </div>
@@ -282,6 +290,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         width: 16px;
         height: 16px;
         font-size: 14px;
+        top: 2px; /* not aligned with text otherwise */
 
         background-color: var(--input-background);
         position: relative;
@@ -304,8 +313,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         content: "";
     }
     input[type="checkbox"]:checked:after {
-        /* ○•✓ */
-        content: "X";
+        /* X○•✓ */
+        content: "✓";
     }
     label {
         flex: 0;
@@ -419,6 +428,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     .floatInputSlider {
         flex: 1;
+        /* Firefox's default slider width is too big */
+        min-width: 128px;
+        width: 128px;
     }
     #graphToolPanelHandle {
         position: absolute;
@@ -659,6 +671,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     const defaultCameraZ = 3;
     const defaultCameraW = cameraWInput.sliderToValue();
     const defaultTimeSpeed = timeSpeedInput.sliderToValue();
+    const defaultLogX = xLogCheckbox.checked;
+    const defaultLogY = yLogCheckbox.checked;
+    const defaultShowGrid = gridCheckbox.checked;
     const defaultGridDivisions = gridDivisionsInput.sliderToValue();
     const defaultThickness = thicknessInput.sliderToValue();
     const defaultOpacity = opacityInput.sliderToValue();
@@ -667,9 +682,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     const defaultSliderMax = +10;
     const defaultSliderValue = 0;
 
-    let cameraX = +loadState("cx", defaultCameraX); // in graph coordinates
+    let cameraX = +loadState("cx", defaultCameraX); // in graph coordinates when using linear space.
     let cameraY = +loadState("cy", defaultCameraY);
-    let cameraZ = +loadState("cz", defaultCameraZ); // graphs window height spans pow(2, cameraZ) graph units.
+    let cameraZ = +loadState("cz", defaultCameraZ); // graphs window height spans pow(2, cameraZ) graph units in linear scale.
     let cameraW = +loadState("cw", defaultCameraW); // uv.x is scaled by cameraW
 
     let targetCameraX = cameraX;
@@ -681,6 +696,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     let gridDivisions = +loadState("gd", defaultGridDivisions);
     let rulerForm = loadState('rf', 'decimal');
     let cursorRulerType = loadState('crt', 'on-panel');
+    xLogCheckbox.checked = !!loadState("xls", false);
+    yLogCheckbox.checked = !!loadState("yls", false);
     gridCheckbox.checked = !!loadState("gc", true);
     rulersCheckbox.checked = !!loadState("rc", false);
     cursorCoordsOnAxisCheckbox.checked = !!loadState("ccoac", false);
@@ -765,8 +782,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         const deltaY = e.wheelDeltaY / 120.0;
 
         const step = 0.25;
-        const pointX =  ((e.clientX - canvas.getBoundingClientRect().left) * window.devicePixelRatio - canvas.width  * 0.5) / canvas.height * exp2(cameraZ) * cameraW + cameraX;
-        const pointY = -((e.clientY - canvas.getBoundingClientRect().top ) * window.devicePixelRatio - canvas.height * 0.5) / canvas.height * exp2(cameraZ)           + cameraY;
+        const [pointX, pointY] = clientToGraphNoLog(e.clientX, e.clientY);
 
         const d = deltaY * step * window.devicePixelRatio;
 
@@ -811,8 +827,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             resizeCanvas();
         }
         if (isPanning) {
-            targetCameraX -= (e.clientX - panPrevX) * window.devicePixelRatio / canvas.height * exp2(cameraZ) * cameraW;
-            targetCameraY += (e.clientY - panPrevY) * window.devicePixelRatio / canvas.height * exp2(cameraZ);
+            let zoomY = exp2(cameraZ);
+            targetCameraX -= (e.clientX - panPrevX) * window.devicePixelRatio / canvas.height * zoomY * cameraW;
+            targetCameraY += (e.clientY - panPrevY) * window.devicePixelRatio / canvas.height * zoomY;
             panPrevX = e.clientX;
             panPrevY = e.clientY;
         }
@@ -1412,12 +1429,15 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             params = `${params}${name}=${encodeURIComponent(value)}&`;
         }
 
-        if (targetCameraX != defaultCameraX      ) write("cx", targetCameraX);
-        if (targetCameraY != defaultCameraY      ) write("cy", targetCameraY);
-        if (targetCameraZ != defaultCameraZ      ) write("cz", targetCameraZ);
-        if (targetCameraW != defaultCameraW      ) write("cw", targetCameraW);
-        if (timeSpeed     != defaultTimeSpeed    ) write("ts", timeSpeed    );
-        if (gridDivisions != defaultGridDivisions) write("gd", gridDivisions);
+        if (targetCameraX        != defaultCameraX      ) write("cx", targetCameraX);
+        if (targetCameraY        != defaultCameraY      ) write("cy", targetCameraY);
+        if (targetCameraZ        != defaultCameraZ      ) write("cz", targetCameraZ);
+        if (targetCameraW        != defaultCameraW      ) write("cw", targetCameraW);
+        if (timeSpeed            != defaultTimeSpeed    ) write("ts", timeSpeed    );
+        if (gridDivisions        != defaultGridDivisions) write("gd", gridDivisions);
+        if (gridCheckbox.checked != defaultShowGrid     ) write("sg", gridCheckbox.checked);
+        if (xLogCheckbox.checked != defaultLogX         ) write("lx", xLogCheckbox.checked);
+        if (yLogCheckbox.checked != defaultLogY         ) write("ly", yLogCheckbox.checked);
 
         for (let input of inputs) {
             let text = input.getText();
@@ -2093,6 +2113,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             //uniform vec4 _activeColor;
             uniform float _gridEnabled;
             uniform float _gridDivisions;
+            uniform vec2 _logScale;
             
             out vec4 _outColor;
             
@@ -2109,6 +2130,12 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             #line 1 // No need to constantly update startingLineNumber with this
             ${graphDefinitions}
 
+            float _grid(float thickness, float uv, float d) {
+                float a = d * (thickness * 0.5 + 0.5);
+                float b = d * (thickness * 0.5 - 0.5);
+                float t = 1.0 - clamp01((uv-a)/(b-a));
+                return 1.0 - t;
+            }
             float _grid(float thickness, vec2 uv, vec2 d) {
                 vec2 a = d * (thickness * 0.5 + 0.5);
                 vec2 b = d * (thickness * 0.5 - 0.5);
@@ -2124,21 +2151,53 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     return clamp(1.0 - r/d, 0.0, 1.0) * thick;
             }
 
+            const float thinGridA = 0.3;
+            const float thikGridA = 0.6;
+            const float axisGridA = 1.0;
+            
+            float linOrLogGrid(int comp, float _logScale, float _linuv, float _dlinuv, float _gridScale1, float _gridScale2) {
+                float resultThin, resultThick;
+                float _gridScale2Clamped = min(1.0, _gridScale2);
+            
+                float scale = clamp(floor(-iCamera.z + ${gridScalingOffset.toFixed(3)}), 1.0, 2.0);
+                float _uvfrac  = pow(_gridDivisions, fract(_linuv)*scale);
+                float _uvfloor = pow(_gridDivisions, floor(_linuv)*scale);
+                
+                float _duv = _ddxy(pow(_gridDivisions, _linuv*scale))[comp];
+
+                if (_logScale > 0.5 && _gridScale1 > 2.5) {
+                    resultThin  = thinGridA * clamp01(2.0 * 0.5 + 0.5 - abs(fract(_uvfrac+0.5) - 0.5)/_duv*_uvfloor);
+                    resultThick = thikGridA * _grid(2.0, abs(fract(_linuv+0.5)-0.5), _dlinuv);
+                } else {
+                    resultThin  = thinGridA*_grid(1.0, abs(fract(_linuv*_gridScale1+0.5)-0.5), _dlinuv*_gridScale1);
+                    resultThick = thikGridA*_grid(2.0, abs(fract(_linuv*_gridScale2+0.5)-0.5), _dlinuv*_gridScale2);
+                }
+
+                return 1.0 - (1.0 - resultThin) * (1.0 - resultThick);
+            }
+
             void main() {
                 _outColor = _backgroundColor;
 
                 vec2 _zoom = vec2(exp2(iCamera.z));
                 _zoom.x *= iCamera.w;
                 vec2 _uv = (gl_FragCoord.xy - iResolution * 0.5) / iResolution.y * _zoom + iCamera.xy;
+                vec2 _linuv = _uv;
+                vec2 _dlinuv = _ddxy(_linuv);
+                if (_logScale.x > 0.5) _uv.x = pow(_gridDivisions, _uv.x);
+                if (_logScale.y > 0.5) _uv.y = pow(_gridDivisions, _uv.y);
                 vec2 _duv = _ddxy(_uv);
 
                 if (_gridEnabled > 0.5) {
+                    float _invGridDivisions = 1.0 / _gridDivisions;
+
                     float _gridScale2 = pow(_gridDivisions, -(floor(logBase(_gridDivisions, _zoom.y * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
                     float _gridScale1 = _gridScale2 * _gridDivisions;
                     
-                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*0.3*_grid(1.0, abs(fract(_uv*_gridScale1+0.5)-0.5), _duv*_gridScale1));
-                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*0.6*_grid(2.0, abs(fract(_uv*_gridScale2+0.5)-0.5), _duv*_gridScale2));
-                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*1.0*_grid(2.0, abs(_uv), max(vec2(1e-10), _duv)));
+                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, linOrLogGrid(0, _logScale.x, _linuv.x, _dlinuv.x, _gridScale1, _gridScale2));
+                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, linOrLogGrid(1, _logScale.y, _linuv.y, _dlinuv.y, _gridScale1, _gridScale2));
+
+                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*axisGridA*_grid(2.0, abs(_linuv), max(vec2(1e-10), _dlinuv)));
                 }
                 
                 ${graphCode}
@@ -2439,6 +2498,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
                 gl.uniform4f(cameraLocation, cameraX, cameraY, cameraZ, cameraW);
                 gl.uniform1f(timeLocation, shaderTime);
+                gl.uniform2f(gl.getUniformLocation(program, "_logScale"), xLogCheckbox.checked, yLogCheckbox.checked);
                 gl.uniform1f(gl.getUniformLocation(program, "_gridEnabled"), gridCheckbox.checked);
                 gl.uniform1f(gl.getUniformLocation(program, "_gridDivisions"), gridDivisions);
                 gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -2493,35 +2553,43 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             let x0 = (+(0 - cameraX) / zoomY / cameraW * canvas.height + canvas.width  * 0.5)/window.devicePixelRatio;
             let y0 = (-(0 - cameraY) / zoomY           * canvas.height + canvas.height * 0.5)/window.devicePixelRatio;
 
-            function renderRuler(x, fractionDigits, logZoom) {
-                if (rulerForm != 'decimal') {
-                    if (logZoom >= 0) {
-                        // zoomed out so only integers are displayed
-                        return round(x);
-                    } else {
-                        let p = pow(gridDivisions, -logZoom);
-                        let numer = round(x*p);
-                        let denom = round(  p);
-
-                        if (numer == 0) {
-                            return "0";
+            function renderRuler(x, logScale, delta, logZoom) {
+                if (!logScale) {
+                    if (rulerForm != 'decimal') {
+                        if (logZoom >= 0) {
+                            // zoomed out so only integers are displayed
+                            return round(x);
                         } else {
-                            if (rulerForm == 'rational-gcd') {
-                                let d = gcd(numer, denom);
-                                numer = round(numer / d);
-                                denom = round(denom / d);
-                            }
+                            let p = pow(gridDivisions, -logZoom);
+                            let numer = round(x*p);
+                            let denom = round(  p);
 
-                            let int = floor(numer / denom);
-                            if (int * denom == numer) {
-                                return int;
+                            if (numer == 0) {
+                                return "0";
                             } else {
-                                return `${numer}/${denom}`;
+                                if (rulerForm == 'rational-gcd') {
+                                    let d = gcd(numer, denom);
+                                    numer = round(numer / d);
+                                    denom = round(denom / d);
+                                }
+
+                                let int = floor(numer / denom);
+                                if (int * denom == numer) {
+                                    return int;
+                                } else {
+                                    return `${numer}/${denom}`;
+                                }
                             }
                         }
                     }
                 }
-                return x.toFixed(fractionDigits);
+
+                let nx = x - delta;
+                if (logScale) {
+                     x = pow(gridDivisions,  x);
+                    nx = pow(gridDivisions, nx);
+                }
+                return floatToStringDelta(x, nx - x);
             }
 
             if (rulersCheckbox.checked) {
@@ -2532,27 +2600,32 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     
                     if (Math.abs(x) < stepX*1e-3) x = 0; // Avoid -0
                     
-                    rulerText.innerHTML = renderRuler(x, fractionDigitsX, logZoomX);
+                    rulerText.innerHTML = renderRuler(x, xLogCheckbox.checked, stepX, logZoomX);
                     let rect = rulerText.getBoundingClientRect();
 
                     let left = +(x - cameraX) / zoomY / cameraW * canvas.height + canvas.width  * 0.5;
-                    left = (left - rect.width * (Math.abs(x) < 1e-3 ? 1.0 : 0.5))/window.devicePixelRatio;
+                    left = (left - rect.width * 0.5)/window.devicePixelRatio;
                     
                     let top = y0;
+                    if (Math.abs(x) < 1e-3) top += 8; 
 
                     rulerText.style.left = `${left}px`;
                     rulerText.style.top = `${clamp(top, 0, canvas.height - rect.height)}px`;
                 }
                 for (let y = ymax; y <= ymin; y += stepY) { // TODO: y += step accumulates error. might wanna do it differently.
                     if (rulerTextIndex >= rulerTexts.length) break;
-                    if (Math.abs(y) < stepY*1e-3) continue;
+                    if (Math.abs(y) < stepY*1e-3) y = 0; // Avoid -0
                     let rulerText = rulerTexts[rulerTextIndex++];
                     
-                    rulerText.innerHTML = renderRuler(y, fractionDigitsY, logZoomY);
+                    rulerText.innerHTML = renderRuler(y, yLogCheckbox.checked, stepY, logZoomY);
                     let rect = rulerText.getBoundingClientRect();
 
                     let left = x0 - rect.width;
                     
+                    //let v = floor(y) + 1 + log10(fract(y));
+                    //if (abs(y - floor(y)) < 1e-3)
+                    //    v = y;
+
                     let top = -(y - cameraY) / zoomY * canvas.height + canvas.height  * 0.5;
                     top = (top - rect.height*0.5)/window.devicePixelRatio;
 
@@ -2566,45 +2639,36 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             }
 
             {
-                let fractionDigitsX = clamp(-logZoomX + 2, 0, 100);
-                let fractionDigitsY = clamp(-logZoomY + 2, 0, 100);
-                let maxChars       = Math.max(fractionDigitsX, ceil(log10(Math.max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))));
+                let canvasRect = canvas.getBoundingClientRect();
+                let mouseCanvasX = mouseX - canvasRect.left;
+                let mouseCanvasY = mouseY - canvasRect.top;
+                
+                let [mouseGraphX,  mouseGraphY]  = clientToGraph(mouseX, mouseY);
+                let [mouseGraphXN, mouseGraphYN] = clientToGraph(mouseX + 1, mouseY + 1);
 
-                let cr = canvas.getBoundingClientRect();
-                let x = mouseX - cr.left;
-                let y = mouseY - cr.top;
-                x = (( (x - canvas.width  * 0.5) / canvas.height * zoomY * cameraW + cameraX)).toFixed(fractionDigitsX);
-                y = ((-(y - canvas.height * 0.5) / canvas.height * zoomY           + cameraY)).toFixed(fractionDigitsY);
-                cursorCoordsTextX.innerText = "x="+x;
-                cursorCoordsTextX.style = `
-                    position: absolute;
-                    left: ${60}px;
+                mouseGraphX = floatToStringDelta(mouseGraphX, mouseGraphXN - mouseGraphX);
+                mouseGraphY = floatToStringDelta(mouseGraphY, mouseGraphYN - mouseGraphY);
+
+                let maxChars       = Math.max(clamp(-logZoomX + 2, 0, 100), ceil(log10(Math.max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))));
+
+                cursorCoordsText.innerHTML = `Cursor: x = ${mouseGraphX} <br>
+<span style='white-space: pre;'>             </span>y = ${mouseGraphY}
                 `;
 
-                cursorCoordsTextY.innerText = "y="+y + "   ";
-                cursorCoordsTextY.style = `
-                    position: absolute;
-                    left: ${100 + maxChars*10}px;
-                `;
-            }
-            if (cursorCoordsOnAxisCheckbox.checked) {
-                let fractionDigitsX = clamp(-logZoomX + 2, 0, 100);
-                let fractionDigitsY = clamp(-logZoomY + 2, 0, 100);
-
-                let cr = canvas.getBoundingClientRect();
-
-                cursorXRulerText.innerText = (( ((mouseX - cr.left) - canvas.width  * 0.5) / canvas.height * zoomY * cameraW + cameraX)).toFixed(fractionDigitsX);
-                cursorYRulerText.innerText = ((-((mouseY - cr.top ) - canvas.height * 0.5) / canvas.height * zoomY           + cameraY)).toFixed(fractionDigitsY);
-
-                {
-                    let rect = cursorXRulerText.getBoundingClientRect();
-                    cursorXRulerText.style.left = `${mouseX - cr.left}px`;
-                    cursorXRulerText.style.top = `${clamp(y0, 0, canvas.height - rect.height)}px`;
-                }
-                {
-                    let rect = cursorYRulerText.getBoundingClientRect();
-                    cursorYRulerText.style.left = `${clamp(x0, 0, canvas.width - rect.width)}px`;
-                    cursorYRulerText.style.top = `${mouseY - cr.top}px`;
+                if (cursorCoordsOnAxisCheckbox.checked) {
+                    cursorXRulerText.innerText = mouseGraphX;
+                    cursorYRulerText.innerText = mouseGraphY;
+    
+                    {
+                        let rect = cursorXRulerText.getBoundingClientRect();
+                        cursorXRulerText.style.left = `${mouseX - canvasRect.left}px`;
+                        cursorXRulerText.style.top = `${clamp(y0, 0, canvas.height - rect.height)}px`;
+                    }
+                    {
+                        let rect = cursorYRulerText.getBoundingClientRect();
+                        cursorYRulerText.style.left = `${clamp(x0, 0, canvas.width - rect.width)}px`;
+                        cursorYRulerText.style.top = `${mouseY - canvasRect.top}px`;
+                    }
                 }
             }
             
@@ -2615,6 +2679,47 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         
         animate();
     })();
+
+    function clientToGraphNoLog(x, y) {
+        let canvasRect = canvas.getBoundingClientRect();
+        x -= canvasRect.left;
+        y -= canvasRect.top;
+        
+        let zoomY = exp2(cameraZ);
+
+        x = +(x * window.devicePixelRatio - canvas.width  * 0.5) / canvas.height * zoomY * cameraW + cameraX;
+        y = -(y * window.devicePixelRatio - canvas.height * 0.5) / canvas.height * zoomY           + cameraY;
+
+        return [x, y]
+    }
+    function clientToGraph(x, y) {
+        [x, y] = clientToGraphNoLog(x, y);
+        
+        if (xLogCheckbox.checked) x = pow(gridDivisions, x);
+        if (yLogCheckbox.checked) y = pow(gridDivisions, y);
+
+        return [x, y]
+    }
+
+    function graphToClientNoLog(x, y) {
+        let zoomY = exp2(cameraZ);
+
+        x = (+(x - cameraX) / zoomY / cameraW * canvas.height + canvas.width  * 0.5) / window.devicePixelRatio;
+        y = (-(y - cameraY) / zoomY           * canvas.height + canvas.height * 0.5) / window.devicePixelRatio;
+            
+        let canvasRect = canvas.getBoundingClientRect();
+        x += canvasRect.left;
+        y += canvasRect.top;
+        
+        return [x, y]
+    }
+
+    function graphToClient(x, y) {
+        if (xLogCheckbox.checked) x = logBase(gridDivisions, x);
+        if (yLogCheckbox.checked) y = logBase(gridDivisions, y);
+
+        return graphToClientNoLog(x, y)
+    }
 
         
     function initStorage() {
@@ -2654,6 +2759,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         storeState("rf", rulerForm);
         storeState("crt", cursorRulerType);
         storeState("gtpv", graphToolPanelVisible);
+        storeState("xls", xLogCheckbox.checked);
+        storeState("yls", yLogCheckbox.checked);
         storeState("gc", gridCheckbox.checked);
         storeState("rc", rulersCheckbox.checked);
         storeState("ccoac", cursorCoordsOnAxisCheckbox.checked);
@@ -3244,7 +3351,18 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
     function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-    
+
+    function floatToStringDelta(value, delta) {
+        // Render such amount of digits so that
+        // floatToStringDelta(value, delta),
+        // floatToStringDelta(value + delta, delta) and
+        // floatToStringDelta(value - delta, delta)
+        // differ in at least one character.
+        return value.toFixed(clamp(ceil(-log10(abs(delta))), 0, 100));
+    }
+  
+
+
 /*
 
 TODO: make a page with all these bits visualized. iframes?
