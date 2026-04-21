@@ -59,6 +59,7 @@ Both GLSL and HLSL function names are available.
 You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io/issues">https://github.com/twixuss/twixuss.github.io/issues</a>
 
 <h3>TODO</h3>
+* Slider step.
 * Work loss prevention.
 * Undo for sliders.
 * Show point on graph closest to mouse?
@@ -109,6 +110,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 </div>
                 <input id="cursorCoordsOnAxisCheckbox" type="checkbox"></input>
                 <label for="cursorCoordsOnAxisCheckbox">Cursor on axes</label>
+                <br>
+                <span id="debugLabel" style="white-space: pre-line;"></span>
             </div>
             <button id="graphToolPanelHandle">></button>
             <div id="popupPanel" style="display: none;">
@@ -1435,9 +1438,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         if (targetCameraW        != defaultCameraW      ) write("cw", targetCameraW);
         if (timeSpeed            != defaultTimeSpeed    ) write("ts", timeSpeed    );
         if (gridDivisions        != defaultGridDivisions) write("gd", gridDivisions);
-        if (gridCheckbox.checked != defaultShowGrid     ) write("sg", gridCheckbox.checked);
-        if (xLogCheckbox.checked != defaultLogX         ) write("lx", xLogCheckbox.checked);
-        if (yLogCheckbox.checked != defaultLogY         ) write("ly", yLogCheckbox.checked);
+        if (gridCheckbox.checked != defaultShowGrid     ) write("sg", gridCheckbox.checked ? 1 : 0);
+        if (xLogCheckbox.checked != defaultLogX         ) write("lx", xLogCheckbox.checked ? 1 : 0);
+        if (yLogCheckbox.checked != defaultLogY         ) write("ly", yLogCheckbox.checked ? 1 : 0);
 
         for (let input of inputs) {
             let text = input.getText();
@@ -1497,8 +1500,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             targetCameraY = defaultCameraY;
             targetCameraZ = defaultCameraZ;
             targetCameraW = defaultCameraW;
+            gridDivisions = defaultGridDivisions;
+            gridCheckbox.checked = defaultShowGrid;
+            xLogCheckbox.checked = defaultLogX;
+            yLogCheckbox.checked = defaultLogY;
             const params = urlParam.split("&").map(p => decodeURIComponent(p));
-    
             for (let param of params) {
                 if (!param.length) continue;
                 let [name, value] = split2(param, '=');
@@ -1509,6 +1515,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     case 'cw': targetCameraW = +value; continue;
                     case 'ts': timeSpeed = +value; continue;
                     case 'gd': gridDivisions = +value; continue;
+                    case 'sg': gridCheckbox.checked = value == '1'; continue;
+                    case 'lx': xLogCheckbox.checked = value == '1'; continue;
+                    case 'ly': yLogCheckbox.checked = value == '1'; continue;
                 }
                 if (name[0] == "i") {
                     let index = name.substr(1, name.length-2);
@@ -2130,18 +2139,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             #line 1 // No need to constantly update startingLineNumber with this
             ${graphDefinitions}
 
-            float _grid(float thickness, float uv, float d) {
-                float a = d * (thickness * 0.5 + 0.5);
-                float b = d * (thickness * 0.5 - 0.5);
-                float t = 1.0 - clamp01((uv-a)/(b-a));
-                return 1.0 - t;
-            }
-            float _grid(float thickness, vec2 uv, vec2 d) {
-                vec2 a = d * (thickness * 0.5 + 0.5);
-                vec2 b = d * (thickness * 0.5 - 0.5);
-                vec2 t = 1.0 - clamp01((uv-a)/(b-a));
-                return 1.0 - t.x * t.y;
-            }
             float _smooth0(float r, float d, float thick) {
                 // NOTE: Thickness less than 1 looks pixelated.
                 //       Resort to fade-out in that case.
@@ -2150,30 +2147,48 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 else
                     return clamp(1.0 - r/d, 0.0, 1.0) * thick;
             }
+            float _smooth0(vec2 r, vec2 d, float thick) {
+                r.x = 1.0 - _smooth0(r.x, d.x, thick);
+                r.y = 1.0 - _smooth0(r.y, d.y, thick);
+                return 1.0 - r.x * r.y;
+            }
 
             const float thinGridA = 0.3;
             const float thikGridA = 0.6;
             const float axisGridA = 1.0;
             
-            float linOrLogGrid(int comp, float _logScale, float _linuv, float _dlinuv, float _gridScale1, float _gridScale2) {
-                float resultThin, resultThick;
+            // returns .x - thin, .y - thick
+            vec2 _gridAxis(float _logScale, float _gridScale1, float _gridScale2, float _uvfrac, float _duv, float _linuv, float _dlinuv) {
+                vec2 result = vec2(0);
+                if (_logScale > 0.5 && _gridScale1 > 1.0) {
+                    result.x = _smooth0(abs(fract(_uvfrac+0.5) - 0.5), _duv, 1.0);
+                } else {
+                    result.x = _smooth0(abs(fract(_linuv*_gridScale1+0.5)-0.5), _dlinuv*_gridScale1, 1.0);
+                }
+                if (_logScale > 0.5 && _gridScale1 > _gridDivisions) {
+                    result.y = _smooth0(abs(fract(_uvfrac/_gridDivisions+0.5) - 0.5), _duv/_gridDivisions, 2.0);
+                } else {
+                    result.y = _smooth0(abs(fract(_linuv*_gridScale2+0.5)-0.5), _dlinuv*_gridScale2, 2.0);
+                }
+                return result;
+            }
+            float _grid(vec2 _linuv, vec2 _dlinuv, float _gridScale1, float _gridScale2) {
                 float _gridScale2Clamped = min(1.0, _gridScale2);
             
-                float scale = clamp(floor(-iCamera.z + ${gridScalingOffset.toFixed(3)}), 1.0, 2.0);
-                float _uvfrac  = pow(_gridDivisions, fract(_linuv)*scale);
-                float _uvfloor = pow(_gridDivisions, floor(_linuv)*scale);
+                float _scale = pow(_gridDivisions, -(floor(logBase(_gridDivisions, exp2(iCamera.z) * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
+                vec2 _uvfrac  = pow(vec2(_gridDivisions), fract(_linuv)) * _scale;
+                vec2 _uvfloor = pow(vec2(_gridDivisions), floor(_linuv)) * _scale;
                 
-                float _duv = _ddxy(pow(_gridDivisions, _linuv*scale))[comp];
+                vec2 _duv = _ddxy(_uvfrac);
+                //vec2 _duv = pow(vec2(_gridDivisions), fract(_linuv) + _ddxy(_linuv)) * _scale - _uvfrac;
 
-                if (_logScale > 0.5 && _gridScale1 > 2.5) {
-                    resultThin  = thinGridA * clamp01(2.0 * 0.5 + 0.5 - abs(fract(_uvfrac+0.5) - 0.5)/_duv*_uvfloor);
-                    resultThick = thikGridA * _grid(2.0, abs(fract(_linuv+0.5)-0.5), _dlinuv);
-                } else {
-                    resultThin  = thinGridA*_grid(1.0, abs(fract(_linuv*_gridScale1+0.5)-0.5), _dlinuv*_gridScale1);
-                    resultThick = thikGridA*_grid(2.0, abs(fract(_linuv*_gridScale2+0.5)-0.5), _dlinuv*_gridScale2);
-                }
+                vec2 x = _gridAxis(_logScale.x, _gridScale1, _gridScale2, _uvfrac.x, _duv.x, _linuv.x, _dlinuv.x);
+                vec2 y = _gridAxis(_logScale.y, _gridScale1, _gridScale2, _uvfrac.y, _duv.y, _linuv.y, _dlinuv.y);
 
-                return 1.0 - (1.0 - resultThin) * (1.0 - resultThick);
+                float r = 0.0;
+                r = mix(thinGridA, r, (1.0 - x.x) * (1.0 - y.x));
+                r = mix(thikGridA, r, (1.0 - x.y) * (1.0 - y.y));
+                return r;
             }
 
             void main() {
@@ -2194,10 +2209,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     float _gridScale2 = pow(_gridDivisions, -(floor(logBase(_gridDivisions, _zoom.y * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
                     float _gridScale1 = _gridScale2 * _gridDivisions;
                     
-                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, linOrLogGrid(0, _logScale.x, _linuv.x, _dlinuv.x, _gridScale1, _gridScale2));
-                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, linOrLogGrid(1, _logScale.y, _linuv.y, _dlinuv.y, _gridScale1, _gridScale2));
+                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _grid(_linuv, _dlinuv, _gridScale1, _gridScale2));
 
-                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*axisGridA*_grid(2.0, abs(_linuv), max(vec2(1e-10), _dlinuv)));
+                    _outColor.xyz = mix(_outColor.xyz, _gridColor.xyz, _gridColor.w*axisGridA*_smooth0(abs(_linuv), max(vec2(1e-10), _dlinuv), 2.0));
                 }
                 
                 ${graphCode}
@@ -2523,44 +2537,49 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 flushStorage();
             }
 
-            let zoomY = exp2(cameraZ);
-            let zoomX = zoomY*cameraW;
-            let logZoomY = floor(logBase(gridDivisions, zoomY) + gridScalingOffset);
-            let logZoomX = floor(logBase(gridDivisions, zoomX) + gridScalingOffset);
-            let fractionDigitsX = -logZoomX;
-            let fractionDigitsY = -logZoomY;
-            switch (gridDivisions) {
-                case 2:  
-                case 5:  
-                case 10:
-                    break;
-                default:
-                    fractionDigitsX += 1;
-                    fractionDigitsY += 1;
-                    break;
-            }
-            fractionDigitsX = clamp(floor(fractionDigitsX), 0, 100);
-            fractionDigitsY = clamp(floor(fractionDigitsY), 0, 100);
+            let [x0, y0] = graphToCanvasNoLog(0, 0);
+            let [x1, y1] = graphToCanvasNoLog(1, 1);
+            let uw = x1 - x0;
+            let uh = y0 - y1;
+
+            if (rulersCheckbox.checked) {
+                let zoomY = exp2(cameraZ);
+                let zoomX = zoomY*cameraW;
+                let logZoomY = floor(logBase(gridDivisions, zoomY) + gridScalingOffset);
+                let logZoomX = floor(logBase(gridDivisions, zoomX) + gridScalingOffset);
+                let fractionDigitsX = -logZoomX;
+                let fractionDigitsY = -logZoomY;
+                switch (gridDivisions) {
+                    case 2:  
+                    case 5:  
+                    case 10:
+                        break;
+                    default:
+                        fractionDigitsX += 1;
+                        fractionDigitsY += 1;
+                        break;
+                }
+                fractionDigitsX = clamp(floor(fractionDigitsX), 0, 100);
+                fractionDigitsY = clamp(floor(fractionDigitsY), 0, 100);
 
 
-            let stepY = pow(gridDivisions, logZoomY);
-            let stepX = pow(gridDivisions, logZoomX);
-            let xmin = floor(( (0             - canvas.width  * 0.5) / canvas.height * zoomY*cameraW + cameraX)/stepX)*stepX;
-            let xmax =  ceil(( (canvas.width  - canvas.width  * 0.5) / canvas.height * zoomY*cameraW + cameraX)/stepX + 1)*stepX;
-            let ymin =  ceil((-(0             - canvas.height * 0.5) / canvas.height * zoomY         + cameraY)/stepY + 1)*stepY;
-            let ymax = floor((-(canvas.height - canvas.height * 0.5) / canvas.height * zoomY         + cameraY)/stepY)*stepY;
+                let stepY = pow(gridDivisions, logZoomY);
+                let stepX = pow(gridDivisions, logZoomX);
+                let [xmin, ymin] = canvasToGraphNoLog(0, 0);
+                let [xmax, ymax] = canvasToGraphNoLog(canvas.width, canvas.height);
+                [ymin, ymax] = [ymax, ymin];
 
-            let x0 = (+(0 - cameraX) / zoomY / cameraW * canvas.height + canvas.width  * 0.5)/window.devicePixelRatio;
-            let y0 = (-(0 - cameraY) / zoomY           * canvas.height + canvas.height * 0.5)/window.devicePixelRatio;
-
-            function renderRuler(x, logScale, delta, logZoom) {
-                if (!logScale) {
+                function renderRuler(x, isLog, delta, logZoom) {
                     if (rulerForm != 'decimal') {
-                        if (logZoom >= 0) {
+                        let p = isLog ? Math.max(1.0, pow(gridDivisions, Math.max(-1-logZoom,0)-floor(logBase(gridDivisions, x)))) : pow(gridDivisions, -logZoom);
+
+                        if (p == Infinity)
+                        debugBreak();
+
+                        if (p <= 1) {
                             // zoomed out so only integers are displayed
                             return round(x);
                         } else {
-                            let p = pow(gridDivisions, -logZoom);
                             let numer = round(x*p);
                             let denom = round(  p);
 
@@ -2582,56 +2601,108 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                             }
                         }
                     }
+
+                    let nx = x - delta;
+                    return floatToStringDelta(x, nx - x);
                 }
 
-                let nx = x - delta;
-                if (logScale) {
-                     x = pow(gridDivisions,  x);
-                    nx = pow(gridDivisions, nx);
-                }
-                return floatToStringDelta(x, nx - x);
-            }
-
-            if (rulersCheckbox.checked) {
                 let rulerTextIndex = 0;
-                for (let x = xmin; x <= xmax; x += stepX) { // TODO: x += step accumulates error. might wanna do it differently.
-                    if (rulerTextIndex >= rulerTexts.length) break;
+                function iterateRulers(min, max, step, isLog, logZoom, callback) {
+                    if (isLog) {
+                        if (logZoom < 0) {
+                            // Log zoomed in
+                            debugLabel.innerHTML = `
+                            // Log zoomed in
+                            `;
+                            let s = pow(gridDivisions, logZoom);
+                            
+                            let o = logZoom + 1;
+                            min = floor(pow(gridDivisions,min)/pow(gridDivisions,floor(min)+o))*pow(gridDivisions,floor(min)+o);
+                            max = ceil(pow(gridDivisions,max)/pow(gridDivisions,floor(max)+o))*pow(gridDivisions,floor(max)+o);
+                            step = pow(gridDivisions, floor(logBase(gridDivisions, min) + 1e-6) + logZoom + 1); // NOTE: log might return something like 5.999999, so add a small epsilon.
+
+                            for (let x = min; x <= max;) {
+                                if (callback(x, step))
+                                    break;
+
+                                let oldX = x;
+                                //x += step;
+                                x = round((x + step) / step) * step
+    
+                                if (floor(log10(x)) != floor(log10(oldX)))
+                                    step *= 10;
+                            }
+                        } else {
+                            // Log zoomed out
+                            debugLabel.innerHTML = `
+                            // Log zoomed out
+                            `;
+                            min = floor(min/step)*step;
+                            max =  ceil(max/step)*step;
+                            let xn = (max - min) / step;
+    
+                            for (let i = 0; i < xn; ++i) {
+                                let x = i/xn*(max-min) + min;
+
+                                if (callback(pow(gridDivisions, x), pow(gridDivisions, floor(x) + logZoom)))
+                                    break;
+                            }
+                        }
+                    } else {
+                        // Linear
+                            debugLabel.innerHTML = `
+                        // Linear
+                            `;
+                        min = floor(min/step)*step;
+                        max =  ceil(max/step)*step;
+                        let xn = (max - min) / step;
+                        for (let i = 0; i < xn; ++i) {
+                            let x = i/xn*(max-min) + min;
+
+                            if (callback(x, step))
+                                break;
+                        }
+                    }
+                }
+
+                iterateRulers(xmin, xmax, stepX, xLogCheckbox.checked, logZoomX, (x, stepX) => {
+                    if (x === Infinity || (xLogCheckbox.checked && x < 1e-300)) return;
+                    if (rulerTextIndex >= rulerTexts.length) return true;
                     let rulerText = rulerTexts[rulerTextIndex++];
                     
-                    if (Math.abs(x) < stepX*1e-3) x = 0; // Avoid -0
+                    if (Math.abs(x) < stepX*1e-3) x = 0; // Avoid "-0"
                     
-                    rulerText.innerHTML = renderRuler(x, xLogCheckbox.checked, stepX, logZoomX);
+                    rulerText.innerHTML = renderRuler(x, xLogCheckbox.checked, stepX, logZoomX); // Linear
                     let rect = rulerText.getBoundingClientRect();
 
-                    let left = +(x - cameraX) / zoomY / cameraW * canvas.height + canvas.width  * 0.5;
-                    left = (left - rect.width * 0.5)/window.devicePixelRatio;
-                    
+                    let left = graphToCanvas(x, 0)[0] - rect.width * 0.5; // Log Zoomed In
+
                     let top = y0;
-                    if (Math.abs(x) < 1e-3) top += 8; 
+                    if (Math.abs(xLogCheckbox.checked ? x - 1 : x) < stepX*1e-3)
+                        top += 8; // Make sure x and y labels at 0,0 don't overlap
 
                     rulerText.style.left = `${left}px`;
                     rulerText.style.top = `${clamp(top, 0, canvas.height - rect.height)}px`;
-                }
-                for (let y = ymax; y <= ymin; y += stepY) { // TODO: y += step accumulates error. might wanna do it differently.
-                    if (rulerTextIndex >= rulerTexts.length) break;
-                    if (Math.abs(y) < stepY*1e-3) y = 0; // Avoid -0
+                });
+
+                iterateRulers(ymin, ymax, stepY, yLogCheckbox.checked, logZoomY, (y, stepY) => {
+                    if (y === Infinity || (yLogCheckbox.checked && y < 1e-300)) return;
+                    if (rulerTextIndex >= rulerTexts.length) return true;
                     let rulerText = rulerTexts[rulerTextIndex++];
+
+                    if (Math.abs(y) < stepY*1e-3) y = 0; // Avoid "-0"
                     
                     rulerText.innerHTML = renderRuler(y, yLogCheckbox.checked, stepY, logZoomY);
                     let rect = rulerText.getBoundingClientRect();
 
                     let left = x0 - rect.width;
                     
-                    //let v = floor(y) + 1 + log10(fract(y));
-                    //if (abs(y - floor(y)) < 1e-3)
-                    //    v = y;
-
-                    let top = -(y - cameraY) / zoomY * canvas.height + canvas.height  * 0.5;
-                    top = (top - rect.height*0.5)/window.devicePixelRatio;
+                    let top = graphToCanvas(0, y)[1] - rect.height * 0.5;
 
                     rulerText.style.left = `${clamp(left, 0, canvas.width - rect.width)}px`;
                     rulerText.style.top = `${top}px`;
-                }
+                });
+
                 for (let i = rulerTextIndex; i < rulerTexts.length; ++i) {
                     let rulerText = rulerTexts[i];
                     rulerText.style.top = `-1000px`;
@@ -2646,10 +2717,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 let [mouseGraphX,  mouseGraphY]  = clientToGraph(mouseX, mouseY);
                 let [mouseGraphXN, mouseGraphYN] = clientToGraph(mouseX + 1, mouseY + 1);
 
-                mouseGraphX = floatToStringDelta(mouseGraphX, mouseGraphXN - mouseGraphX);
-                mouseGraphY = floatToStringDelta(mouseGraphY, mouseGraphYN - mouseGraphY);
-
-                let maxChars       = Math.max(clamp(-logZoomX + 2, 0, 100), ceil(log10(Math.max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))));
+                mouseGraphX = floatToStringDelta(mouseGraphX, mouseGraphXN - mouseGraphX, 20);
+                mouseGraphY = floatToStringDelta(mouseGraphY, mouseGraphYN - mouseGraphY, 20);
 
                 cursorCoordsText.innerHTML = `Cursor: x = ${mouseGraphX} <br>
 <span style='white-space: pre;'>             </span>y = ${mouseGraphY}
@@ -2680,17 +2749,27 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         animate();
     })();
 
-    function clientToGraphNoLog(x, y) {
-        let canvasRect = canvas.getBoundingClientRect();
-        x -= canvasRect.left;
-        y -= canvasRect.top;
-        
+    function canvasToGraphNoLog(x, y) {
         let zoomY = exp2(cameraZ);
 
         x = +(x * window.devicePixelRatio - canvas.width  * 0.5) / canvas.height * zoomY * cameraW + cameraX;
         y = -(y * window.devicePixelRatio - canvas.height * 0.5) / canvas.height * zoomY           + cameraY;
 
         return [x, y]
+    }
+    function canvasToGraph(x, y) {
+        [x, y] = canvasToGraphNoLog(x, y);
+        
+        if (xLogCheckbox.checked) x = pow(gridDivisions, x);
+        if (yLogCheckbox.checked) y = pow(gridDivisions, y);
+
+        return [x, y]
+    }
+    function clientToGraphNoLog(x, y) {
+        let canvasRect = canvas.getBoundingClientRect();
+        x -= canvasRect.left;
+        y -= canvasRect.top;
+        return canvasToGraphNoLog(x, y);
     }
     function clientToGraph(x, y) {
         [x, y] = clientToGraphNoLog(x, y);
@@ -2701,11 +2780,24 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         return [x, y]
     }
 
-    function graphToClientNoLog(x, y) {
+    function graphToCanvasNoLog(x, y) {
         let zoomY = exp2(cameraZ);
 
         x = (+(x - cameraX) / zoomY / cameraW * canvas.height + canvas.width  * 0.5) / window.devicePixelRatio;
         y = (-(y - cameraY) / zoomY           * canvas.height + canvas.height * 0.5) / window.devicePixelRatio;
+            
+        return [x, y]
+    }
+
+    function graphToCanvas(x, y) {
+        if (xLogCheckbox.checked) x = logBase(gridDivisions, x);
+        if (yLogCheckbox.checked) y = logBase(gridDivisions, y);
+
+        return graphToCanvasNoLog(x, y)
+    }
+
+    function graphToClientNoLog(x, y) {
+        [x, y] = graphToCanvasNoLog(x, y);
             
         let canvasRect = canvas.getBoundingClientRect();
         x += canvasRect.left;
@@ -3352,13 +3444,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 
-    function floatToStringDelta(value, delta) {
+    function floatToStringDelta(value, delta, maxDigits) {
         // Render such amount of digits so that
         // floatToStringDelta(value, delta),
         // floatToStringDelta(value + delta, delta) and
         // floatToStringDelta(value - delta, delta)
         // differ in at least one character.
-        return value.toFixed(clamp(ceil(-log10(abs(delta))), 0, 100));
+        if (maxDigits === undefined) maxDigits = 100;
+        return value.toFixed(clamp(ceil(-log10(abs(delta))), 0, maxDigits));
     }
   
 
