@@ -88,6 +88,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             <div id="graphToolPanel">
                 <float-input id="cameraWInput"       var="targetCameraW" label="X scale"        value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></float-input>
                 <float-input id="timeSpeedInput"     var="timeSpeed"     label="Time speed"     value="0"  min="-1" max= "1" step="0.01" shape="exp10" ></float-input>
+                <input id="gridCheckbox" type="checkbox" checked="true"></input>
+                <label for="gridCheckbox">Show grid</label>
                 <float-input id="gridDivisionsInput" var="gridDivisions" label="Grid divisions" value="10" min= "2" max="16" step="1"    shape="linear"></float-input>
                 <input id="rulersCheckbox" type="checkbox"></input>
                 <label for="rulersCheckbox">Rulers</label>
@@ -679,6 +681,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     let gridDivisions = +loadState("gd", defaultGridDivisions);
     let rulerForm = loadState('rf', 'decimal');
     let cursorRulerType = loadState('crt', 'on-panel');
+    gridCheckbox.checked = !!loadState("gc", true);
     rulersCheckbox.checked = !!loadState("rc", false);
     cursorCoordsOnAxisCheckbox.checked = !!loadState("ccoac", false);
 
@@ -2088,6 +2091,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             uniform vec4 _backgroundColor;
             uniform vec4 _gridColor;
             //uniform vec4 _activeColor;
+            uniform float _gridEnabled;
             uniform float _gridDivisions;
             
             out vec4 _outColor;
@@ -2128,7 +2132,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 vec2 _uv = (gl_FragCoord.xy - iResolution * 0.5) / iResolution.y * _zoom + iCamera.xy;
                 vec2 _duv = _ddxy(_uv);
 
-                {
+                if (_gridEnabled > 0.5) {
                     float _gridScale2 = pow(_gridDivisions, -(floor(logBase(_gridDivisions, _zoom.y * max(iCamera.w, 1.0)) + ${gridScalingOffset.toFixed(3)})));
                     float _gridScale1 = _gridScale2 * _gridDivisions;
                     
@@ -2435,6 +2439,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
                 gl.uniform4f(cameraLocation, cameraX, cameraY, cameraZ, cameraW);
                 gl.uniform1f(timeLocation, shaderTime);
+                gl.uniform1f(gl.getUniformLocation(program, "_gridEnabled"), gridCheckbox.checked);
                 gl.uniform1f(gl.getUniformLocation(program, "_gridDivisions"), gridDivisions);
                 gl.drawArrays(gl.TRIANGLES, 0, 3);
             }
@@ -2649,6 +2654,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         storeState("rf", rulerForm);
         storeState("crt", cursorRulerType);
         storeState("gtpv", graphToolPanelVisible);
+        storeState("gc", gridCheckbox.checked);
         storeState("rc", rulersCheckbox.checked);
         storeState("ccoac", cursorCoordsOnAxisCheckbox.checked);
         for (let input of inputs) {
