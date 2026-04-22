@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Derivative finder</title>
+</head>
+<body>
+    Input expression:<br>
+    <input id="inputField" type="text" value="mix(mix(v00, v10, x), mix(v01, v11, x), y)"><br>
+    <br>
+    Simplified input:<br>
+    <textarea id="simplifiedInputField" readonly></textarea>
+    <br>
+    Derivative:<br>
+    <textarea id="outputField" readonly></textarea>
+    Substitutions (lines in form "name=value"):<br>
+    <textarea id="substitutionsField" style="height: 100px;">dv00=0
+dv01=0
+dv10=0
+dv11=0
+dy=0</textarea>
+    <br>
+    Substituted Derivative:<br>
+    <textarea id="substitutedOutputField" readonly></textarea>
+    <br>
+    Simplified Derivative:<br>
+    <textarea id="simplifiedOutputField" readonly></textarea>
+</body>
+<style>
+    * {
+        background-color: #222;
+        color: #fff;
+        font-family: Arial;
+        padding: 0px;
+        margin: 0px;
+        font-size: 16px;
+
+        --input-background: #111;
+        --input-border: #333;
+        --input-border-active: #fff;
+    }
+    body {
+        padding: 32px;
+    }
+    input[type="text"] {
+        height: 32px;
+    }
+    input[type="text"], textarea {
+        width: 100%;
+        background-color: var(--input-background);
+        padding-left: 8px;
+        margin-bottom: 2px;
+        border: 1px solid var(--input-border);
+    }
+    input:focus-visible, textarea:focus-visible {
+        border: 1px solid var(--input-border-active);
+        outline: 0;
+    }
+    textarea {
+        padding-top: 8px;
+    }
+</style>
+<script>
+    "use strict";
+
+    const enableAsserts = true;
+    const nullLocation = {begin: 0, end: 0};
+    let substitutions;
+    
+    onInputChanged();
+    inputField.addEventListener('input', e => {
+        onInputChanged();
+    });
+    substitutionsField.addEventListener('input', e => {
+        onInputChanged();
+    });
+    function onInputChanged() {
+        simplifiedInputField.value = '';
+        outputField.value = '';
+        substitutedOutputField.valid = '';
+        simplifiedOutputField.value = '';
+
+        substitutions = new Map();
+
+        for (let line of substitutionsField.value.split('\n')) {
+            line = line.trim();
+            if (line.length == 0)
+                continue;
+
+            let eqIndex = line.indexOf('=');
+            if (eqIndex == -1)
+                continue;
+
+            let name = line.substring(0, eqIndex).trim();
+            let value = line.substring(eqIndex + 1).trim();
+            let number = +value;
+            if (value !== '') {
+                if (isNaN(number)) {
+                    substitutions.set(name, identCreate(value));
+                } else {
+                    substitutions.set(name, literalCreate(number));
+                }
+            }
+        }
+
+        try {
+            let tokens = tokenize(inputField.value);
+            if (tokens.length) {
+                let result = tokensToAst(tokens);
+                if (!result.valid || result.expr === undefined) {
+                    simplifiedInputField.value = "Failed to parse.";
+                    return;
+                }
+                let simplifiedInput = simplify(result.expr);
+                simplifiedInputField.value = astToString(simplifiedInput);
+                let derivative = derivativeOf(simplifiedInput);
+                outputField.value = astToString(derivative);
+                let substituted = substitute(derivative);
+                substitutedOutputField.value = astToString(substituted);
+                let expr = simplify(substituted);
+                simplifiedOutputField.value = astToString(expr);
+            }
+        } catch(e) {
+            outputField.value = `Unhandled exception: ${e}`;
+        }
+
+    }
+//mix(mix(v00, v10, x), mix(v01, v11, x), y)
+//mix(a,b,c) => da + (db - da) * c + (b - a) * dc
+    function simplify(expr) {
+        switch (expr.kind) {
+            case 'unary': {
+                let inner = simplify(expr.expression);
+                if (expr.operation == '+')
+                    return inner;
+                if (expr.operation == '-' && inner.kind == 'unary' && inner.operation == '-')
+                    return inner.expression;
+                return unaryCreate(expr.operation, inner);
+            }
+            case 'binary': {
+                let result = binaryCreate(simplify(expr.left), expr.operation, simplify(expr.right));
+                // Both literals
+                if (result.left.kind == 'literal' && result.right.kind == 'literal') {
+                    switch (result.operation) {
+                        case '+': return literalCreate(result.left.value + result.right.value);
+                        case '-': return literalCreate(result.left.value - result.right.value);
+                        case '*': return literalCreate(result.left.value * result.right.value);
+                        case '/': return literalCreate(result.left.value / result.right.value);
+                    }
+                }
+                switch (result.operation) {
+                    case '+':
+                    case '-': {
+                        if (result.left .kind == 'literal' && result.left .value == 0) return result.right;
+                        if (result.right.kind == 'literal' && result.right.value == 0) return result.left;
+                        break;
+                    }
+                    case '*': {
+                        if (result.left .kind == 'literal' && result.left .value == 1) return result.right;
+                        if (result.right.kind == 'literal' && result.right.value == 1) return result.left;
+                        if (result.left .kind == 'literal' && result.left .value == 0) return literalCreate(0);
+                        if (result.right.kind == 'literal' && result.right.value == 0) return literalCreate(0);
+                        break;
+                    }
+                    case '/': {
+                        if (result.right.kind == 'literal' && result.right.value == 1) return result.left;
+                        break;
+                    }
+                }
+                return result;
+            }
+            case 'call': {
+                let args = expr.arguments.map(a => simplify(a));
+                switch (expr.callable.name) {
+                    case 'mix':
+                    case 'lerp': {
+                        if (args.length !== 3) {
+                            throw `mix/lerp accepts 3 arguments, not ${args.length}`;
+                        }
+                        return binaryCreate(args[0], '+', binaryCreate(binaryCreate(args[1], '-', args[0]), '*', args[2]));
+                    }
+                }
+                return callCreate(expr.callable, args);
+            }
+        }
+        return expr;
+    }
+    function derivativeOf(expr) {
+        switch (expr.kind) {
+            case 'ident': {
+                return identCreate('d' + expr.name);
+            }
+            case 'literal': {
+                return literalCreate(0);
+            }
+            case 'unary': {
+                return unaryCreate(expr.operation, derivativeOf(expr.expression));
+            }
+            case 'binary': {
+                switch (expr.operation) {
+                    case '+':
+                    case '-':
+                        return binaryCreate(
+                            derivativeOf(expr.left),
+                            expr.operation,
+                            derivativeOf(expr.right)
+                        );
+                    case '*':
+                        return binaryCreate(binaryCreate(derivativeOf(expr.left), '*', expr.right), '+', binaryCreate(expr.left, '*', derivativeOf(expr.right)));
+                    case '/':
+                        return binaryCreate(binaryCreate(binaryCreate(derivativeOf(expr.left), '*', expr.right), '-', binaryCreate(expr.left, '*', derivativeOf(expr.right))), '/', callCreate(identCreate('pow'), [expr.right, literalCreate(2)]));
+                }
+                break;
+            }
+            case 'call': {
+                switch (expr.callable.name) {
+                    case 'pow': {
+                        
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        return callCreate(identCreate('derivative'), [expr]);
+    }
+    function substitute(ast) {
+        visit(ast, 'pre', node => {
+            switch (node.kind) {
+                case 'ident': {
+                    if (substitutions.has(node.name)) {
+                        return {action: 'substitute', node: substitutions.get(node.name)}
+                    }
+                    break;
+                }
+            }
+        });
+        return ast;
+    }
+    
+    (async () => {
+    })();
+
+    function debugBreak() {
+        try {
+            throw 1;
+        }
+        catch {
+
+        }
+    }
+    function assert(cond, message) {
+        if (enableAsserts && !cond) {
+            if (!message) message = '';
+            throw new Error(`Assertion failed: ${message}`);
+        }
+    }
+    function tokenize(input) {
+        const tokens = [];
+        let i = 0;
+
+        while (i < input.length) {
+            const char = input[i];
+            if (/\s/.test(char)) {
+                ++i;
+                continue;
+            }
+
+            let begin = i;
+            function pushToken(kind, string) {
+                tokens.push({
+                    kind,
+                    string,
+                    location: {
+                        begin,
+                        end: i,
+                    },
+                });
+            }
+
+            if (/\d/.test(char)) {
+                let number = '';
+                let encounteredDot = false;
+                while (i < input.length && /[\d.]/.test(input[i])) {
+                    encounteredDot ||= input[i] == '.';
+                    number += input[i++];
+                }
+                if (i < input.length) {
+                    if (input[i].toLowerCase() == "e") {
+                        number += input[i++];
+                        while (i < input.length && /[+-]/.test(input[i])) {
+                            number += input[i++];
+                        }
+                        while (i < input.length && /[\d.]/.test(input[i])) {
+                            number += input[i++];
+                        }
+                    } else {
+                        if (!encounteredDot) {
+                            number += ".0";
+                        }
+                    }
+                } else {
+                    if (!encounteredDot) {
+                        number += ".0";
+                    }
+                }
+                pushToken('number', number);
+                continue;
+            }
+            if (/[a-zA-Z_]/.test(char)) {
+                let identifier = '';
+                while (i < input.length && /[a-zA-Z0-9_]/.test(input[i])) {
+                    identifier += input[i++];
+                }
+                pushToken('ident', identifier);
+                continue;
+            }
+            ++i;
+
+            // HACK
+            if (char == '=' && tokens.length > 0 && tokens[tokens.length-1].string == '=' && tokens[tokens.length-1].location.end == i-1) {
+                tokens[tokens.length-1].kind =
+                tokens[tokens.length-1].string = '==';
+                tokens[tokens.length-1].location.end += 1;
+            } else {
+                pushToken(char, char);
+            }
+        }
+
+        return tokens;
+    }
+
+    function matchingBracket(s) {
+        switch (s) {
+            case '(': return ')';
+            case '{': return '}';
+            case '[': return ']';
+            case ')': return '(';
+            case '}': return '{';
+            case ']': return '[';
+        }
+        return s;
+    }
+
+    function identCreate(name) {
+        return {
+            kind: 'ident',
+            location: nullLocation,
+            name,
+        }
+    }
+    function literalCreate(value) {
+        return {
+            kind: 'literal',
+            location: nullLocation,
+            value,
+        }
+    }
+    function unaryCreate(operation, expression) {
+        return {
+            kind: 'unary',
+            location: nullLocation,
+            operation, expression,
+        }
+    }
+    function binaryCreate(left, operation, right) {
+        return {
+            kind: 'binary',
+            location: nullLocation,
+            left, operation, right,
+        }
+    }
+    function callCreate(callable, args) {
+        if (args === undefined) args = [];
+        return {
+            kind: 'call',
+            location: nullLocation,
+            callable,
+            arguments: args,
+        }
+    }
+    function asUnaryOperation(kind) {
+        switch (kind) {
+            case '+':  case '-':
+                return kind;
+        }
+        return undefined;
+    }
+    function asBinaryOperation(kind) {
+        switch (kind) {
+            case '+':  case '-':  case '*':  case '/':  case '%':
+            case '&&':  case '||': 
+            case '^':  case '&':  case '|':  case '<<':  case '>>':
+            case '=':
+            case '==': case '!=': case '<': case '>': case '<=': case '>=':
+                return kind;
+        }
+        return undefined;
+    }
+    function isRightAssociative(binaryOperation) {
+        return false;
+    }
+    function getPrecedence(binaryOperation) {
+        switch (binaryOperation) {
+            case '.':
+                return 9;
+            case '*':
+            case '/':
+            case '%':
+                return 7;
+            case '+':
+            case '-':
+                return 6;
+            case '|':
+            case '&':
+            case '^':
+            case '<<':
+            case '>>':
+                return 5;
+            case '==':
+            case '!=':
+            case '<':
+            case '<=':
+            case '>':
+            case '>=':
+                return 4;
+            case '&&':
+            case '||':
+                return 3;
+            case '=':
+                return 1;
+        }
+    }
+    function tokensToAst(tokens) {
+        function reportError(location, message) {
+            console.log(`${location.begin}: ${message}`);
+        }
+
+        const nullToken = {
+            kind: 'null',
+            location: nullLocation,
+            string: '',
+        }
+        let token = tokens[0] || nullToken;
+        let current = 0;
+
+        function next() {
+            token = tokens[++current] || nullToken;
+        }
+        function expect(expected) {
+            assert(token.kind == expected)
+        }
+        function parseExpression0() {
+            switch (token.kind) {
+                case '(': {
+                    let open = token.string;
+
+                    next();
+                    
+                    let expression = parseExpression();
+
+                    expect(')');
+                    let close = token.string;
+                    next();
+
+                    expression.location = {begin: open.begin, end: close.end};
+
+                    return expression;
+                }
+                case 'ident': {
+                    let name = identCreate();
+                    name.name = token.string;
+                    name.location = {...token.location};
+                    next();
+                    return name;
+                }
+                case 'number': {
+                    let literal = literalCreate();
+                    literal.location = {...token.location};
+                    literal.value = +token.string;
+                    literal.string = token.string;
+                    next();
+                    return literal;
+                }
+                default: {
+                    let operation = asUnaryOperation(token.kind);
+                    if (operation) {
+                        let unop = unaryCreate();
+                        unop.operation = operation;
+                        unop.location = {...token.location};
+                        next();
+                        
+                        unop.expression = parseExpression1();
+                        unop.location = {begin: unop.location.begin, end: unop.expression.location.end};
+                        return unop;
+                    }
+
+                    reportError(token.location, `Unexpected token ${token.kind} when parsing expression.`);
+                    throw 'fail';
+                }
+            }
+
+            assert(false, "node was not returned");
+        }
+        function parseExpression1() {
+            let expression = parseExpression0();
+            
+            while (1) {
+                switch (token.kind) {
+                    case '.': {
+                        let binary = binaryCreate();
+                        binary.operation = '.';
+                        binary.location = {...token.location};
+                        binary.left = expression;
+                        next();
+                        binary.right = parseExpression0();
+                        if (binary.right.kind != 'ident') {
+                            reportError(binary.right.location, "Only identifiers can follow a dot.");
+                            throw 'fail';
+                        }
+                        binary.location = {begin: binary.left.location.begin, end: binary.right.location.end};
+                        expression = binary;
+                        break;
+                    }
+                    case '(': {
+                        let call = callCreate();
+                        call.callable = expression;
+                        call.location = expression.location;
+
+                        next();
+                        if (token.kind != ')') {
+                            while (true) {
+                                let argument = parseExpression();
+
+                                call.arguments.push(argument);
+
+                                if (token.kind == ',') {
+                                    next();
+                                    if (token.kind == ')') {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                if (token.kind == ')') {
+                                    break;
+                                }
+
+                                reportError(token.string, "Unexpected token `{}` when parsing call argument list. Expected `,` or `)`.", token.string);
+                                throw 'fail';
+                            }
+                        }
+
+                        call.location = {begin: call.location.begin, end: token.string.end};
+
+                        next();
+                        expression = call;
+                        break;
+                    }
+                    default:
+                        return expression;
+                }
+            }
+        }
+        function parseExpression(rightPrecedence) {
+            if (rightPrecedence === undefined) rightPrecedence = 0;
+            assert(typeof rightPrecedence === 'number');
+
+            let left = parseExpression1();
+            let operation;
+            while (1) {
+                operation = asBinaryOperation(token.kind);
+
+                if (!operation || rightPrecedence >= getPrecedence(operation)) {
+                    break;
+                }
+
+                let binop = binaryCreate();
+                binop.left = left;
+                binop.operation = operation;
+                next();
+                binop.right = parseExpression(getPrecedence(operation) - isRightAssociative(operation));
+                binop.location = { begin: binop.left.location.begin, end: binop.right.location.end };
+                left = binop;
+            }
+
+            return left;
+        }
+
+        try {
+            let result = {};
+            result.valid = false;
+            result.expr = parseExpression();
+            if (token.string == '[') {
+                next();
+                result.min = parseExpression1();
+                expect(',');
+                next();
+                result.max = parseExpression1();
+                expect(']')
+                next();
+            }
+            if (current != tokens.length) {
+                console.log("Unparsed tokens remaining: ", tokens.length - current);
+                return result;
+            }
+            result.valid = true;
+            return result;
+        }
+        catch (thrown) {
+            if (thrown != 'fail') {
+                console.log("Unexpected thrown value:", thrown);
+            }
+            return {valid: false};
+        }
+    }
+    function needsParensForUnary(expr) {
+        switch (expr.kind) {
+            case 'ident':
+            case 'unary':
+                return false;
+        }
+        return true;
+    }
+    function needsParensForBinary(binary, inner) {
+        let outerPrecedence = getPrecedence(binary.operation);
+        switch (inner.kind) {
+            case 'ident':
+            case 'literal':
+            case 'unary':
+                return false;
+            case 'binary':
+                if (binary.operation == '-' && inner === binary.right) return true;
+                let innerPrecedence = getPrecedence(inner.operation);
+                return innerPrecedence < outerPrecedence;
+        }
+        return true;
+    }
+    function astToString(ast) {
+        switch (ast.kind) {
+            case 'none': return '';
+            case 'ident': return ast.name;
+            case 'literal': return ast.value;
+            case 'unary': {
+                let e = astToString(ast.expression);
+                if (needsParensForUnary(ast.expression)) e = `(${e})`;
+                return `${ast.operation}${astToString(ast.expression)}`;
+            }
+            case 'binary': {
+                let l = astToString(ast.left);
+                let r = astToString(ast.right);
+                if (needsParensForBinary(ast, ast.left)) l = `(${l})`;
+                if (needsParensForBinary(ast, ast.right)) r = `(${r})`;
+                return `${l} ${ast.operation} ${r}`;
+            }
+            case 'call':
+                return `${astToString(ast.callable)}(${ast.arguments.map(a => astToString(a)).join(', ')})`;
+            case 'derivative': return `derivative(${astToString(ast.expression)})`;
+        }
+        assert(false, `unhandled ast kind: ${ast.kind}`);
+    }
+    function astToNumber(ast) {
+        switch (ast.kind) {
+            case 'none':
+                case 'ident':
+                return NaN;
+            case 'literal':
+                return ast.value;
+            case 'unary':
+                switch (ast.operation) {
+                    case '+': return +astToNumber(ast.expression);
+                    case '-': return -astToNumber(ast.expression);
+                }
+                break;
+            case 'binary':
+                switch (ast.operation) {
+                    case '+': return astToNumber(ast.left) + astToNumber(ast.right);
+                    case '-': return astToNumber(ast.left) - astToNumber(ast.right);
+                    case '*': return astToNumber(ast.left) * astToNumber(ast.right);
+                    case '/': return astToNumber(ast.left) / astToNumber(ast.right);
+                }
+                break;
+        }
+        assert(false, `unhandled ast kind: ${ast.kind}`);
+    }
+    function visit(ast, order, callback) {
+        let result, r;
+        if (order !== 'post')
+            result = callback(ast);
+
+        switch (ast.kind) {
+            case 'none':
+            case 'ident':
+            case 'literal':
+                break;
+            case 'unary':
+                r = visit(ast.expression, order, callback);
+                if (r !== undefined) {
+                    if (r.action == 'substitute') {
+                        ast.expression = r.node;
+                    }
+                }
+                break;
+            case 'binary':
+                r = visit(ast.left, order, callback);
+                if (r !== undefined) {
+                    if (r.action == 'substitute') {
+                        ast.left = r.node;
+                    }
+                }
+
+                r = visit(ast.right, order, callback);
+                if (r !== undefined) {
+                    if (r.action == 'substitute') {
+                        ast.right = r.node;
+                    }
+                }
+                break;
+            case 'call':
+                r = visit(ast.callable, order, callback);
+                if (r !== undefined) {
+                    if (r.action == 'substitute') {
+                        ast.callable = r.node;
+                    }
+                }
+                for (let i = 0; i < ast.arguments.length; ++i) {
+                    r = visit(ast.arguments[i], order, callback);
+                    if (r !== undefined) {
+                        if (r.action == 'substitute') {
+                            ast.arguments[i] = r.node;
+                        }
+                    }
+                }
+                break;
+            default:
+                assert(false, `unhandled ast kind: ${ast.kind}`);
+                break;
+        }
+        if (order === 'post')
+            result = callback(ast);
+        return result;
+    }
+</script>
+</html>

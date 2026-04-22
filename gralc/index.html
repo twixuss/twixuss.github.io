@@ -1021,6 +1021,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             text.className = 'lineText';
             text.type = "text";
             text.addEventListener('input', e => {
+                clearMessages();
                 updateInput(input);
             })
             initUndo(text);
@@ -1120,6 +1121,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 for (let input of inputs) {
                     if (input.type == 'none') {
                         input.text.value = `${createSliderButton.ident} = 1`;
+                        clearMessages()
                         updateInput(input);
                         break;
                     }
@@ -1254,6 +1256,12 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             left: ${floor(input.text.getBoundingClientRect().left - input.line.getBoundingClientRect().left + 1 - input.text.scrollLeft)}px;
             top:  ${floor(input.text.getBoundingClientRect().top  - input.line.getBoundingClientRect().top  + 1)}px;
         `;
+    }
+
+    function clearMessages() {
+        for (let input of inputs) {
+            input.message.value = '';
+        }
     }
 
     function updateInput(input) {
@@ -2525,7 +2533,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 storeAllState();
 
                 // TODO:
-                // This makes page zoom reset every time.
+                // This makes page zoom reset every time in Brave. Firefox handles well.
                 window.history.replaceState(null, '', stateToUrlParams());
             }
 
