@@ -362,7 +362,8 @@ c d e f           f
     │     │     │     │     │     │     │     ╭────────────────────────╯
     a     b     c     d     e     f     g     h
 `]},
-{name: "_mm_unpackhi_epi8", mnem: "punpckhbw", section: "SSE2", category: "Swizzle", groups: [`\
+{name: "_mm_unpackhi_epi8", mnem: "punpckhbw", section: "SSE2", category: "Swizzle",
+mnemLink: "https://www.felixcloutier.com/x86/punpckhbw:punpckhwd:punpckhdq:punpckhqdq", groups: [`\
  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15                                                 
  ╭───────────────────────╯  │  │  │  │  │  │  │
  │     ╭────────────────────╯  │  │  │  │  │  │
@@ -424,7 +425,8 @@ c d e f           f
   │   │   │   ╭─────────╯
   a   b   c   d
 `]},
-{name: "_mm_unpackhi_epi16", mnem: "punpckhwd", section: "SSE2", category: "Swizzle", groups: [`\
+{name: "_mm_unpackhi_epi16", mnem: "punpckhwd", section: "SSE2", category: "Swizzle",
+mnemLink: "https://www.felixcloutier.com/x86/punpckhbw:punpckhwd:punpckhdq:punpckhqdq", groups: [`\
 0 1 2 3 4 5 6 7                  
 ╭───────╯ │ │ │
 │   ╭─────╯ │ │
@@ -460,7 +462,8 @@ c d e f           f
   │   ╭─────╯
   a   b
 `]},
-{name: "_mm_unpackhi_epi32", mnem: "punpckhdq", section: "SSE2", category: "Swizzle", groups: [`\
+{name: "_mm_unpackhi_epi32", mnem: "punpckhdq", section: "SSE2", category: "Swizzle",
+mnemLink: "https://www.felixcloutier.com/x86/punpckhbw:punpckhwd:punpckhdq:punpckhqdq", groups: [`\
 0 1 2 3          
 ╭───╯ │
 │   ╭─╯
@@ -484,7 +487,8 @@ c d e f           f
   ╭───╯
   a
 `]},
-{name: "_mm_unpackhi_epi64", mnem: "punpckhqdq", section: "SSE2", category: "Swizzle", groups: [`\
+{name: "_mm_unpackhi_epi64", mnem: "punpckhqdq", section: "SSE2", category: "Swizzle",
+mnemLink: "https://www.felixcloutier.com/x86/punpckhbw:punpckhwd:punpckhdq:punpckhqdq", groups: [`\
 0 1      
 ╭─╯
 │
@@ -515,6 +519,52 @@ c d e f           f
   ╭─────╯
   b
 `]},
+{name: "_mm_mul_epu32", mnem: "pmuludq", section: "SSE2", category: "Math", groups: [`\
+ 0 1 2 3
+
+
+
+
+`, `\
+
+
+ 0 1 2 3
+`, `\
+
+ x   x
+
+ |   |
+ 0   1
+`, `\
+| | | | |
+
+| | | | |
+
+|   |   |
+`], note: "Zero extend even-indexed source 32-bit values (low 64-bit half) and do 64-bit unsigned multiplication"},
+{name: "_mm_mul_epi32", mnem: "pmuldq", section: "SSE4.1", category: "Math", groups: [`\
+ 0 1 2 3
+
+
+
+
+`, `\
+
+
+ 0 1 2 3
+`, `\
+
+ x   x
+
+ |   |
+ 0   1
+`, `\
+| | | | |
+
+| | | | |
+
+|   |   |
+`], note: "Sign extend even-indexed source 32-bit values (low 64-bit half) and do 64-bit signed multiplication"},
 /* {name: "_mm_sad_epu8", mnem: "psadbw", section: "SSE2", category: "Math", groups: [`\
 unsigned 8-bit ints
 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15                                                 
@@ -946,15 +996,26 @@ a b
                         itemHeader.className = "item-header";
                         gridItem.appendChild(itemHeader);
 
-                            const intrinsicElem = document.createElement('div');
+                            const intrinsicElem = document.createElement('a');
                             intrinsicElem.className = "intr";
                             intrinsicElem.textContent = intrinsic.name;
+                            intrinsicElem.href = intrinsic.nameLink || `https://www.laruence.com/sse/#text=${intrinsic.name}`;
+                            intrinsicElem.target = "_blank";
                             itemHeader.appendChild(intrinsicElem);
 
-                            const mnemonic = document.createElement('div');
-                            mnemonic.className = "mnem";
-                            mnemonic.textContent = intrinsic.mnem;
-                            itemHeader.appendChild(mnemonic);
+                            if (intrinsic.mnem == "(Sequence)") {
+                                const mnemonic = document.createElement('div');
+                                mnemonic.className = "mnem";
+                                mnemonic.textContent = intrinsic.mnem;
+                                itemHeader.appendChild(mnemonic);
+                            } else {
+                                const mnemonic = document.createElement('a');
+                                mnemonic.className = "mnem";
+                                mnemonic.textContent = intrinsic.mnem;
+                                mnemonic.href = intrinsic.mnemLink || `https://www.felixcloutier.com/x86/${intrinsic.mnem}`;
+                                mnemonic.target = "_blank";
+                                itemHeader.appendChild(mnemonic);
+                            }
 
                         const groups = document.createElement('div');
                         groups.className = "groups";
