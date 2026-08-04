@@ -717,13 +717,14 @@ x y z w
 x y z w
 `]},
         {name: "_mm_shuffle_epi8", mnem: "pshufb", section: "SSSE3", category: "Swizzle", groups: [`\
- 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
- ╰──┴──┴──┴──┴──┴──┴──┴┬─┴──┴──┴──┴──┴──┴──┴──╯
+ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15    Z
+ ╰──┴──┴──┴──┴──┴──┴──┴┬─┴──┴──┴──┴──┴──┴──┴──┴────╯
  ╭──┬──┬──┬──┬──┬──┬──┬┴─┬──┬──┬──┬──┬──┬──┬──╮
- 0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0 
+ 0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :
 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15
-`]},
+ Z  Z  Z  Z  Z  Z  Z  Z  Z  Z  Z  Z  Z  Z  Z  Z
+`], note: "If index element is -1 the corresponding result element is set to zero"},
 {name: "_mm_blendv_epi8", mnem: "pblendvb", section: "SSE4.1", category: "Swizzle", useOffset: true, groups: [`\
 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15                                                  
 │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │

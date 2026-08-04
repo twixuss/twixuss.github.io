@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Approximations</title>
+</head>
+<body id="body">
+    <h1>Approximations</h1>
+    <div id="tagContainer">
+        <label for="allTagsCheckbox"><input id="allTagsCheckbox" type="checkbox">All<br></label>
+    </div>
+    <div id="cardContainer"></div>
+</body>
+<style>
+* {
+    margin: 8px;
+    padding: 0;
+    font-family: arial;
+    background-color: transparent;
+    color: #fff;
+}
+html {
+    margin: 0px;
+}
+body {
+    background-color: #222;
+}
+button {
+    outline: none;
+    border: 1px solid #444;
+    padding: 4px;
+}
+button:hover {
+    background-color: #fff2;
+}
+#tagContainer {
+    margin: 0px;
+}
+label {
+    user-select: none;
+}
+#cardContainer {
+    display: flex;
+    margin: 0px;
+}
+.card {
+    background-color: #333;
+    border: 1px solid #444;
+}
+.card-header {
+    font-size: 1.5em;
+}
+.card-code {
+    position: relative;
+    white-space: pre;
+    font-family: monospace;
+    font-size: 1rem;
+    background-color: #222;
+    border: 1px solid #444;
+    padding: 8px;
+}
+.card-code-copy-button {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+}
+</style>
+<script>
+'use strict';
+
+const tags = [
+    { name: 'cubic', description: 'Third order polynomial', },
+    { name: 'quartic', description: 'Fourth order polynomial', },
+    { name: 'daz', description: 'Denormals are zero', },
+];
+
+const cards = [
+    {
+            name: 'log2f',
+            tags: ['cubic', 'daz'],
+            maxError: '5.255e-3',
+            gralc: 'file:///F:/twixuss.github.io/gralc/index.html?cx=0.6647663938633162&cy=0.41609305120736945&cz=1&i0t=none&i0e=%2F%2F%20Cubic%20log2%20approximation&i2t=graph&i2c=%234f4f&i2e=f1%3Dlog2(x%2B1)%20%5B0%2C%201%5D%20%2F%2F%20Builtin&i3t=graph&i3c=%2348ff&i3e=f2%3Dbezier3(p0%2Cp1%2Cp2%2Cp3%2Cx)%20%5B0%2C%201%5D%20%2F%2F%20Approximation&i4t=graph&i4c=%23f44f&i4e=abs(f1-f2)%20%5B0%2C%201%5D%20%2F%2F%20Error&i5t=graph&i5c=%238880&i5e=p0%20%3D%20%2B0&i6t=graph&i6c=%238880&i6e=p1%20%3D%201%2Flog(2)%2F3&i7t=graph&i7c=%238880&i7e=p2%20%3D%201-1%2Flog(2)%2F2%2F3&i8t=graph&i8c=%238880&i8e=p3%20%3D%20%2B1&i10t=function&i10c=%238f4f&i10e=bezier3(a%2Cb%2Cc%2Cd%2Ct)%3Dlerp(bezier2(a%2Cb%2Cc%2Ct)%2C%20bezier2(b%2Cc%2Cd%2Ct)%2C%20t)&i11t=function&i11c=%23f4ff&i11e=bezier2(a%2Cb%2Cc%2Ct)%3Dlerp(lerp(a%2Cb%2Ct)%2Clerp(b%2Cc%2Ct)%2C%20t)&',
+            code: `
+float log2f(float x) {
+    int i = floatBitsToInt(x);
+    if (i < 0x00800000) return 0.0f/0.0f;
+    int mantissa = i & 0x007fffff;
+    int exponent = (i & 0x7f800000) >> 23;
+    float f = intBitsToFloat(mantissa | 0x3f800000) - 1.0f;
+    const float a =  0.1640425f,
+                b = -0.6067376f,
+                c =  1.4426950f;
+    return float(exponent - 127) + f*(f*(f*a + b) + c);
+}`,
+        },
+        {
+            name: 'log2f',
+            tags: ['quartic', 'daz'],
+            maxError: '4.14e-4',
+            gralc: 'file:///F:/twixuss.github.io/gralc/index.html?cx=0.7112446609259279&cy=0.45471621366273274&cz=1&i0t=none&i0e=%2F%2F%20Quartic%20log2%20approximation&i2t=graph&i2c=%234f4f&i2e=f1%3Dlog2(x%2B1)%20%5B0%2C%201%5D%20%2F%2F%20Built-in&i3t=graph&i3c=%2348ff&i3e=f2%3Dbezier4(p0%2Cp1%2Cp2%2Cp3%2Cp4%2Cx)%20%5B0%2C%201%5D%20%2F%2F%20Approximation&i4t=graph&i4c=%23f44f&i4e=abs(f1-f2)*1000%20%5B0%2C%201%5D%20%2F%2F%20Error&i5t=graph&i5c=%238880&i5e=p0%20%3D%20%2B0&i6t=graph&i6c=%238880&i6e=p1%20%3D%201%2Flog(2)%2F4&i7t=slider&i7e=p2%20%3D%200.606126%20&i7a=0.606&i7b=0.607&i8t=graph&i8c=%238880&i8e=p3%20%3D%201-1%2Flog(2)%2F2%2F4&i9t=graph&i9c=%238880&i9e=p4%3D%2B1&i11t=function&i11c=%2344ff&i11e=bezier4(a%2Cb%2Cc%2Cd%2CE%2Ct)%3Dlerp(bezier3(a%2Cb%2Cc%2Cd%2Ct)%2C%20bezier3(b%2Cc%2Cd%2CE%2Ct)%2C%20t)&i12t=function&i12c=%238f4f&i12e=bezier3(a%2Cb%2Cc%2Cd%2Ct)%3Dlerp(bezier2(a%2Cb%2Cc%2Ct)%2C%20bezier2(b%2Cc%2Cd%2Ct)%2C%20t)&i13t=function&i13c=%23f4ff&i13e=bezier2(a%2Cb%2Cc%2Ct)%3Dlerp(lerp(a%2Cb%2Ct)%2Clerp(b%2Cc%2Ct)%2C%20t)&',
+            code: `
+float log2f(float x) {
+    int i = floatBitsToInt(x);
+    if (i < 0x00800000) return 0.0f/0.0f;
+    int mantissa = i & 0x007fffff;
+    int exponent = (i & 0x7f800000) >> 23;
+    float f = intBitsToFloat(mantissa | 0x3f800000) - 1.0f;
+    const float a = -0.08459152f,
+                b =  0.33322560f,
+                c = -0.69132912f,
+                d =  1.44269504f;
+    return float(exponent - 127) + f*(f*(f*(f*a + b) + c) + d);
+}
+`,
+    },
+];
+
+function onTagCheckboxChanged() {
+    let allowedTags = tags
+        .filter(tag => tag.checkbox.checked)
+        .map(tag => tag.name);
+
+    for (let card of cards) {
+        card.rootElement.hidden = false;
+        for (let tag of card.tags) {
+            if (!allowedTags.includes(tag)) {
+                card.rootElement.hidden = true;
+                break;
+            }
+        }
+    }
+}
+
+allTagsCheckbox.addEventListener('input', e => {
+    for (let tag of tags) {
+        tag.checkbox.checked = allTagsCheckbox.checked;
+    }
+    onTagCheckboxChanged();
+});
+for (let tag of tags) {
+    const root = document.createElement('label');
+    root.className = 'tag';
+    root.htmlFor = `${tag.name}-checkbox`;
+    root.innerText = `${tag.name} - ${tag.description}\n`;
+    tagContainer.appendChild(root);
+    tag.rootElement = root;
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = root.htmlFor;
+    checkbox.checked = true;
+    checkbox.addEventListener('input', onTagCheckboxChanged);
+    root.insertBefore(checkbox, root.childNodes[0]);
+    tag.checkbox = checkbox;
+}
+for (let card of cards) {
+    card.code = card.code.trim();
+
+    const root = document.createElement('div');
+    root.className = 'card';
+    cardContainer.appendChild(root);
+    card.rootElement = root;
+
+    const header = document.createElement('div');
+    header.className = 'card-header';
+    header.innerText = `${card.name} - ${card.tags.join(', ')}`;
+    root.appendChild(header);
+    card.headerElement = header;
+
+    const code = document.createElement('div');
+    code.className = 'card-code';
+    code.type = 'text';
+    code.innerText = card.code;
+    root.appendChild(code);
+    card.codeElement = code;
+
+    const copyButton = document.createElement('button');
+    copyButton.className = 'card-code-copy-button';
+    copyButton.innerText = 'Copy';
+    code.appendChild(copyButton);
+    card.copyButton = copyButton;
+    copyButton.addEventListener('click', e => {
+        navigator.clipboard.writeText(card.code);
+    });
+}
+onTagCheckboxChanged();
+</script>
+</html>

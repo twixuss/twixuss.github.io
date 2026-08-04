@@ -5,11 +5,11 @@
 </head>
 <body>
     <div id="container">
-        <div id="leftPanel">
-        </div>
+        <div id="leftPanel"></div>
         <div id="divider"></div>
         <div id="rightPanel" style="display: flex; overflow: hidden; flex: 1; position: relative;">
-            <canvas id="canvas" hidden="true"></canvas>
+            <canvas id="canvas"></canvas>
+            <canvas id="textCanvas" style="pointer-events: none; position: absolute; left: 2px; top: 2px; background-color: transparent;"></canvas>
             <div id="helpPanel">
 <h3>GRALC - Graphing calculator. Made by <a href="https://github.com/twixuss">twixuss</a>.</h3>
 
@@ -111,6 +111,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 <input id="cursorCoordsOnAxisCheckbox" type="checkbox"></input>
                 <label for="cursorCoordsOnAxisCheckbox">Cursor on axes</label>
                 <br>
+                Input debug labels
+                <button onclick="setInputDebugLabelType('none')">None</button>
+                <button onclick="setInputDebugLabelType('parse')">Parse</button>
+                <button onclick="setInputDebugLabelType('derivative')">Derivative</button>
+                <button onclick="setInputDebugLabelType('glsl')">GLSL</button>
                 <span id="debugLabel" style="white-space: pre-line;"></span>
             </div>
             <button id="graphToolPanelHandle">></button>
@@ -184,6 +189,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         display: flex;
         position: relative;
         gap: 2px;
+        padding-top: 1px;
+        padding-bottom: 1px;
     }
     .line > * {
         flex: 1;
@@ -224,7 +231,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         height: 32px;
         padding-left: 8px;
         padding-top: 6px;
-        margin-bottom: 2px;
         overflow: hidden;
         text-overflow: clip;
         white-space: pre;
@@ -243,7 +249,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         background-color: var(--input-background);
         height: 32px;
         padding-left: 8px;
-        margin-bottom: 2px;
         border: 1px solid var(--input-border);
     }
     input:focus-visible {
@@ -338,24 +343,30 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     .minmax {
         max-width: 64px;
     }
-    /* input selector would not be here if .message had bigger priority */
-    input[type="text"].message {
-        /*
+    .message {
         position: absolute;
-        top: 1px;
-        right: 1px;
-        height: 30px;
-        */
+        top: anchor(top);
+        left: calc(anchor(right) + 16px);
+        height: 32px;
+        line-height: 32px;
+        padding-left: 10px;
+        padding-right: 10px;
         color: #f40;
-        background: #0000;
+        background: color-mix(in srgb, var(--background), transparent 50%);
         border: none;
         field-sizing: content;
-        max-width: 300px;
-
-        /* should? */
-        pointer-events: none;
-        cursor: default;
-        user-select: none;
+    }
+    .debugMessage {
+        position: absolute;
+        top: anchor(top);
+        left: calc(anchor(right));
+        height: 32px;
+        line-height: 32px;
+        padding-left: 10px;
+        padding-right: 10px;
+        background: color-mix(in srgb, var(--background), transparent 50%);
+        border: none;
+        field-sizing: content;
     }
     .createSliderButton {
         field-sizing: content;
@@ -382,16 +393,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         aspect-ratio: 1;
         margin: 0;
     }
-    
-    .rulerText {
-        position: absolute;
-        background: transparent;
-        top: 0px;
-        pointer-events: none;
-        cursor: default;
-        user-select: none;
-    }
-
     .rightButton {
         width: 48px;
         height: 48px;
@@ -461,6 +462,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 </style>
 <script>
     "use strict";
+
+    const isFirefox = navigator.userAgent.includes("Firefox");
+
     const enableAsserts = true;
 
     helpPanel.hidden = true;
@@ -743,32 +747,28 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         updateGraphToolPanelVisibility();
     });
 
-    rulersCheckbox.addEventListener('input', e => {
-        if (!rulersCheckbox.checked) {
-            for (let rulerText of rulerTexts) {
-                rulerText.style.top = `-1000px`;
-            }
-        }
-    });
-    cursorCoordsOnAxisCheckbox.addEventListener('input', e => {
-        if (!cursorCoordsOnAxisCheckbox.checked) {
-            cursorXRulerText.style.top = '-1000px';
-            cursorYRulerText.style.top = '-1000px';
-        }
-    });
-
-
     const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    const ctx = textCanvas.getContext('2d');
     const ext = gl.getExtension('KHR_parallel_shader_compile');
     if (ext) console.log("Async shader compilation is supported.");
 
+    let rpClientWidth;
+    let rpClientHeight;
     function resizeCanvas() {
-        const w = rightPanel.getBoundingClientRect().width - 4;
-        const h = rightPanel.getBoundingClientRect().height - 4;
-        canvas.width = w * window.devicePixelRatio;
-        canvas.height = h * window.devicePixelRatio;
-        canvas.style.width = w + "px";
-        canvas.style.height = h + "px";
+        rpClientWidth = rightPanel.getBoundingClientRect().width - 4;
+        rpClientHeight = rightPanel.getBoundingClientRect().height - 4;
+        let width = rpClientWidth * window.devicePixelRatio;
+        let height = rpClientHeight * window.devicePixelRatio;
+        let styleWidth = rpClientWidth + "px";
+        let styleHeight = rpClientHeight + "px";
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.width = styleWidth;
+        canvas.style.height = styleHeight;
+        textCanvas.width = width;
+        textCanvas.height = height;
+        textCanvas.style.width = styleWidth;
+        textCanvas.style.height = styleHeight;
     }
 
     divider.addEventListener('mousedown', e => {
@@ -787,7 +787,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         const step = 0.25;
         const [pointX, pointY] = clientToGraphNoLog(e.clientX, e.clientY);
 
-        const d = deltaY * step * window.devicePixelRatio;
+        let d = deltaY * step;
+        if (!isFirefox)
+            d *= window.devicePixelRatio;
 
         const t = exp2(-d);
 
@@ -850,7 +852,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             leftPanel.appendChild(draggingInput.line);
 
             let h = inputSpacer.getBoundingClientRect().height;
-            inputDropIndex = round(y / h);
+            inputDropIndex = Math.max(0, round(y / h));
             if (inputDropIndex < inputs.length)
                 leftPanel.insertBefore(inputSpacer, leftPanel.children[inputDropIndex]);
             else
@@ -956,6 +958,18 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         '#4f8f',
         '#ffff','#888f','#000f','#8880'
     ];
+
+    function updateInputLineStyle(input) {
+        let style = `anchor-name: --line${input.index};`;
+        if (input.message.innerText.length > 0) {
+            style += 'background-color: #f00;';
+        }
+        input.line.style = style;
+    }
+
+    function updateInputSliderStep(input) {
+        input.slider.step = (input.max.value - input.min.value) * 1e-3;
+    }
 
     let lastClickedShowPicker;
     let inputs = [];
@@ -1075,7 +1089,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             min.tabIndex = -1;
             min.addEventListener('input', e => {
                 input.slider.min = min.value;
-                input.slider.step = (input.max.value - input.min.value) * 1e-3;
+                updateInputSliderStep(input);
+                //updateInput(input);
             })
             min.addEventListener(`focus`, e => {
                 min.select();
@@ -1098,7 +1113,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             max.tabIndex = -1;
             max.addEventListener('input', e => {
                 input.slider.max = max.value;
-                input.slider.step = (input.max.value - input.min.value) * 1e-3;
+                updateInputSliderStep(input);
+                //updateInput(input);
             })
             max.addEventListener(`focus`, e => {
                 max.select();
@@ -1130,16 +1146,26 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             line.appendChild(createSliderButton);
             input.createSliderButton = createSliderButton;
         }
+        let body = document.getElementsByTagName('body')[0];
         {
-            const message = document.createElement("input");
-            message.type = "text";
+            const message = document.createElement("div");
             message.className = "message";
+            message.style = `position-anchor: --line${i}; anchor-name: --message${i};`;
             message.readOnly = true;
             message.tabIndex = -1;
-            message.addEventListener(`focus`, e => message.select());
-            line.appendChild(message);
+            body.appendChild(message);
             input.message = message;
         }
+        {
+            const debugMessage = document.createElement("div");
+            debugMessage.className = "debugMessage";
+            debugMessage.style = `position-anchor: --message${i};`;
+            debugMessage.readOnly = true;
+            debugMessage.tabIndex = -1;
+            body.appendChild(debugMessage);
+            input.debugMessage = debugMessage;
+        }
+        updateInputLineStyle(input);
         leftPanel.appendChild(line);
     }
 
@@ -1172,20 +1198,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         }
     };
 
-    function createRulerText() {
-        const rulerText = document.createElement("div");
-        rulerText.className = "rulerText";
-        rightPanel.insertBefore(rulerText, helpPanel);
-        return rulerText;
-    }
-    
-    let rulerTexts = [];
-    for (let i = 0; i < 100; ++i) {
-        rulerTexts.push(createRulerText());
-    }
-    let cursorXRulerText = createRulerText();
-    let cursorYRulerText = createRulerText();
-
     let needToRecompile = true;
 
     function parseConstant(str) {
@@ -1197,9 +1209,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         input.type = 'none';
         input.name = "";
         input.expr = "";
-        input.slider.valueAsNumber = defaultSliderValue;
+        // NOTE: must set value after min and max
         input.min.value = input.slider.min = defaultSliderMin;
         input.max.value = input.slider.max = defaultSliderMax;
+        input.slider.valueAsNumber = defaultSliderValue;
+        updateInputSliderStep(input);
         input.color = colors[input.index % (colors.length - 1)];
         input.thickness = defaultThickness;
         input.opacity = defaultOpacity;
@@ -1260,7 +1274,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
     function clearMessages() {
         for (let input of inputs) {
-            input.message.value = '';
+            input.message.innerText = '';
         }
     }
 
@@ -1272,16 +1286,24 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         input.isOrderedComparison = false;
         input.isComparison = false;
         input.failedToUpdate = false;
-        input.message.value = '';
+        input.message.innerText = '';
 
         function fail(message) {
             input.type = 'none';
             console.log(message);
-            input.message.value += message;
+            input.message.innerText += message;
             input.failedToUpdate = true;
         }
         
         let text = input.getText();
+
+        if (input.index == 0) {
+            if (text == '') {
+                document.title = 'GRALC - Graphing calculator';
+            } else {
+                document.title = text + ' - GRALC';
+            }
+        }
 
         let commentIndex = text.indexOf("//");
         if (commentIndex != -1) {
@@ -1294,7 +1316,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
         (() => {
             if (tokens.length) {
-                let result = tokensToAst(tokens);
+                let result = tokensToAst(tokens, text);
                 if (result.valid) {
                     ast = input.ast = result.expr;
                     if (result.min) {
@@ -1309,7 +1331,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         input.rangeMax = +1e30;
                     }
                 } else {
-                    return fail("Failed to parse");
+                    return fail(result.message);
                 }
             }
 
@@ -1345,9 +1367,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         // name = constant
                         input.type = 'slider';
                         input.name = ast.left.name;
-                        input.slider.valueAsNumber = ast.right.value;
+                        // NOTE: must set value after min and max
                         input.min.value = input.slider.min = Math.min(+input.min.value, ast.right.value);
                         input.max.value = input.slider.max = Math.max(+input.max.value, ast.right.value);
+                        updateInputSliderStep(input);
+                        input.slider.valueAsNumber = ast.right.value;
                     } else {
                         // name = expr
                         input.type = 'graph';
@@ -1466,9 +1490,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 write(`i${input.index}e`, text);
             } else if (input.type == 'slider') {
                 write(`i${input.index}t`, input.type)
-                if (+text != defaultSliderValue) write(`i${input.index}e`, text);
                 if (+input.min.value  != defaultSliderMin  ) write(`i${input.index}a`, input.min.value );
                 if (+input.max.value  != defaultSliderMax  ) write(`i${input.index}b`, input.max.value );
+                if (+text != defaultSliderValue) write(`i${input.index}e`, text);
             } else if (input.type == 'function') {
                 write(`i${input.index}t`, input.type)
                 write(`i${input.index}c`, input.color);
@@ -1617,10 +1641,23 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
 
     function updateMessageVisibility() {
         for (let input of inputs) {
-            input.message.hidden = input.message.value.length == 0;
+            input.message.style.backgroundColor = input.message.innerText.length == 0 ? 'transparent' : '';
+            input.message.style.paddingLeft = input.message.innerText.length == 0 ? '0px' : '';
+            input.message.style.paddingRight = input.message.innerText.length == 0 ? '0px' : '';
+            input.debugMessage.style.backgroundColor = input.debugMessage.innerText.length == 0 ? 'transparent' : '';
+            input.debugMessage.style.paddingLeft = input.debugMessage.innerText.length == 0 ? '0px' : '';
+            input.debugMessage.style.paddingRight = input.debugMessage.innerText.length == 0 ? '0px' : '';
+            updateInputLineStyle(input);
         }
     }
         
+    let inputDebugLabelType = 'none';
+    function setInputDebugLabelType(type) {
+        console.log(`setInputDebugLabelType(${type})`);
+        inputDebugLabelType = type;
+        recompile();
+        updateMessageVisibility();
+    }
     async function recompile() {
         console.log('recompiling');
 
@@ -1637,65 +1674,55 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         for (let input of inputs) {
             input.createSliderButton.hidden = true;
             input.dependencies = [];
+            input.debugMessage.innerText = '';
         }
 
         for (let input of inputs) {
-            if (input.failedToUpdate)
+            if (input.failedToUpdate) {
+                console.log("Stopping due to failure to update");
                 return;
+            }
+        }
+
+        clearMessages();
+
+        for (let input of inputs) {
+            if (input.type == 'graph' || input.type == 'function') {
+                if (inputDebugLabelType == 'none')
+                    input.debugMessage.innerText = '';
+                else if (inputDebugLabelType == 'parse')
+                    input.debugMessage.innerText = astToString(input.expr);
+            }
         }
 
         const clearTime = endProfileSection();
 
-        // Compute dependencies
+        // Compute dependencies on other graphs/functions
 
         for (let input of inputs) {
             if (input.type == 'graph' || input.type == 'function') {
-                input.dependsOnX = false;
-                input.dependsOnY = false;
-
-                
-                if (input.name == "x") {
-                    input.dependsOnY = true;
-                } else if (input.name == "y") {
-                    input.dependsOnX = true;
-                } else if (input.isComparison) {
-                    input.dependsOnX = true;
-                    input.dependsOnY = true;
-                }
-                
-                visit(input.expr, node => {
+                let message;
+                visit(input.expr, 'pre', node => {
                     if (node.kind == 'ident') {
                         if (input.params.includes(node.name))
                             return;
 
-                        if (node.name == 'x') {
-                            input.dependsOnX = true;
-                        } else if (node.name == 'y') {
-                            input.dependsOnY = true;
-                        } else if (node.name == 'p') {
-                            input.dependsOnX = true;
-                            input.dependsOnY = true;
-                        } else {
+                        if (!['x', 'y', 'p'].includes(node.name)) {
                             let found = inputs.find(other => other.name == node.name);
                             if (found) {
                                 if (found === input) {
-                                    input.message.value += "Can't reference itself";
+                                    message = "Can't reference itself";
                                     return;
                                 }
-
-                                input.dependsOnX ||= found.dependsOnX;
-                                input.dependsOnY ||= found.dependsOnY;
                                 input.dependencies.push(found);
                             }
                         }
                     }
                 });
-                if (input.message.value.length)
+                if (message) {
+                    input.message.innerText += message;
+                    console.log("Stopping due to self referencing");
                     return;
-
-                
-                if (!input.dependsOnX && !input.dependsOnY) {
-                    input.dependsOnX = true;
                 }
             }
         }
@@ -1781,23 +1808,172 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     message += " -> " + input.name;
                 }
                 for (let input of cycle) {
-                    input.message.value += message;
+                    input.message.innerText += message;
                 }
             }            
 
 			if (cycles.length) {
+                console.log("Stopping due to cycles");
                 return;
             }
 		}
 
         const cycleDetectionTime = endProfileSection();
 
+        // Resolve derivatives
+        if (true) {
+            for (let input of inputs) {
+                if (input.type == 'graph' || input.type == 'function') {
+                    input.resolvedDerivatives = structuredClone(input.expr);
+                }
+            }
+        } else {
+            for (let input of inputs) {
+                if (input.type == 'graph' || input.type == 'function') {
+                    try {
+                        input.resolvedDerivatives = structuredClone(input.expr);
+
+                        let r = visit(input.resolvedDerivatives, 'post', ast => {
+                            switch (ast.kind) {
+                                case 'call': {
+                                    if (ast.callable.kind == 'ident' && (ast.callable.name == '__derivative_dx' || ast.callable.name == '__derivative_dy')) {
+                                        let axis = ast.callable.name[14];
+                                        let otherAxis = axis === 'x' ? 'y' : 'x';
+                                        let context = {
+                                            derivativeOf(expr) {
+                                                switch (expr.kind) {
+                                                    case 'ident': {
+                                                        if (expr.name == axis) return literalCreate(1);
+                                                        if (expr.name == otherAxis) return literalCreate(0);
+                                                        break;
+                                                    }
+                                                    case 'binary': {
+                                                        switch (expr.operation) {
+                                                            case '.': {
+                                                                if (expr.left.kind == 'ident' && expr.left.name == 'p' && expr.operation == '.' && expr.right.kind == 'ident') {
+                                                                    if (expr.right.name == axis) return literalCreate(1);
+                                                                    if (expr.right.name == otherAxis) return literalCreate(0);
+                                                                }
+                                                                break;
+                                                            }
+                                                        }
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        };
+                                        return {
+                                            action: 'substitute',
+                                            node: derivativeOf(context, ast.arguments[0]),
+                                        };
+                                    }
+                                }
+                            }
+                        });
+                        if (r !== undefined) {
+                            if (r.action == 'substitute') {
+                                input.resolvedDerivatives = r.node;
+                            }
+                        }
+                        
+                        if (inputDebugLabelType == 'derivative')
+                            input.debugMessage.innerText = astToString(input.resolvedDerivatives);
+                    } catch (e) {
+                        input.message.innerText = "" + e;
+                        console.log("Stopping due to failure in resolving derivatives");
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Compute dependencies on x/y
+        for (let input of inputs) {
+            if (input.type == 'graph' || input.type == 'function') {
+                input.dependsOnX = false;
+                input.dependsOnY = false;
+
+                if (input.name == "x") {
+                    input.dependsOnY = true;
+                } else if (input.name == "y") {
+                    input.dependsOnX = true;
+                } else if (input.isComparison) {
+                    input.dependsOnX = true;
+                    input.dependsOnY = true;
+                }
+                
+                visit(input.resolvedDerivatives, 'pre', node => {
+                    if (node.kind == 'ident') {
+                        if (input.params.includes(node.name))
+                            return;
+
+                        if (node.name == 'x') {
+                            input.dependsOnX = true;
+                        } else if (node.name == 'y') {
+                            input.dependsOnY = true;
+                        } else if (node.name == 'p') {
+                            input.dependsOnX = true;
+                            input.dependsOnY = true;
+                        }
+                    }
+                });
+
+                for (let dependency of input.dependencies) {
+                    input.dependsOnX ||= dependency.dependsOnX;
+                    input.dependsOnY ||= dependency.dependsOnY;
+                }
+
+                
+                if (!input.dependsOnX && !input.dependsOnY) {
+                    input.dependsOnX = true;
+                }
+            }
+        }
+
+        function createDerivativeContext(axis) {
+            return {
+                derivativeOf(expr) {
+                    switch (expr.kind) {
+                        case 'ident': {
+                            if (expr.name == axis)
+                                return literalCreate(1);
+                            //let found = input.dependencies.find(i => i.name == expr.name);
+                            //if (found) {
+                            //    return callCreate(identCreate(`eval_dd${axis}_${found.name}`), [identCreate('p')]);
+                            //}
+                            return literalCreate(0);
+                        }
+                        case 'binary': {
+                            switch (expr.operation) {
+                                case '.': {
+                                    if (expr.left.kind == 'ident' && expr.left.name == 'p' && expr.operation == '.' && expr.right.kind == 'ident') {
+                                        if (expr.right.name == axis)
+                                            return literalCreate(1);
+                                    }
+                                    return literalCreate(0);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    throw 'cant';
+                }
+            };
+        }
+    
+        let ddxContext = createDerivativeContext('x');
+        let ddyContext = createDerivativeContext('y');
+
+        // Ast to glsl
         for (let input of inputs) {
             if (input.type == 'graph' || input.type == 'function') {
                 function astToGlsl(ast) {
                     switch (ast.kind) {
                         case 'none': return '';
-                        case 'literal': return ast.string;
+                        case 'literal':
+                            if (floor(ast.value) == ast.value)
+                                return `${ast.value}.0`;
+                            return ast.value;
                         case 'ident': {
                             let dep = input.dependencies.find(i => i.name == ast.name);
                             if (dep) {
@@ -1810,37 +1986,34 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         case 'unary': return `${ast.operation}(${astToGlsl(ast.expression)})`;
                         case 'binary': return `(${astToGlsl(ast.left)} ${ast.operation} ${astToGlsl(ast.right)})`;
                         case 'call': {
+                            if (ast.callable.kind == 'ident') {
+                                if (ast.callable.name == '__derivative_dx') {
+                                    return astToGlsl(derivativeOf(ddxContext, ast.arguments[0]));
+                                } else if (ast.callable.name == '__derivative_dy') {
+                                    return astToGlsl(derivativeOf(ddyContext, ast.arguments[0]));
+                                }
+                            }
                             return `${astToGlsl(ast.callable)}(${ast.arguments.map(a => astToGlsl(a)).join(', ')})`;
                         }
                     }
                     assert(false, `unhandled ast kind: ${ast.kind}`);
                 }
-                input.processedExpr = astToGlsl(input.expr);
 
-                
+                try {
+                    input.processedExpr = astToGlsl(input.resolvedDerivatives);
+                    //try {
+                    //    input.processedDdxExpr = astToGlsl(derivativeOf(ddxContext, input.resolvedDerivatives));
+                    //} catch {
+                    //    input.processedDdxExpr = '0.0';
+                    //}
 
-
-                function astDerivative(ast) {
-                    switch (ast.kind) {
-                        case 'none': return undefined;
-                        case 'literal': return literalCreate(0);
-                        case 'unary': {
-                            switch (ast.operation) {
-                                case '+': return astDerivative(ast.expression);
-                                case '-': return unaryCreate('-', astDerivative(ast.expression));
-                            }
-                            assert(false, `derivative: unhandled unary: ${ast.operation}`);
-                        }
-                        case 'binary': {
-                            switch (ast.operation) {
-                                case '+': return binaryCreate(astDerivative(ast.left), '+', astDerivative(ast.right));
-                                case '-': return binaryCreate(astDerivative(ast.left), '-', astDerivative(ast.right));
-                                case '*': return binaryCreate(binaryCreate(astDerivative(ast.left), '*', ast.right), '+', binaryCreate(ast.left, '*', astDerivative(ast.right)));
-                            }
-                            assert(false, `derivative: unhandled binary: ${ast.operation}`);
-                        }
+                    if (inputDebugLabelType == 'glsl') {
+                        input.debugMessage.innerText = input.processedExpr;
                     }
-                    assert(false, `derivative: unhandled kind: ${ast.kind}`);
+                } catch (e) {
+                    input.message.innerText = "" + e;
+                    console.log("Stopping due to failure in astToGlsl");
+                    return;
                 }
             }
         }
@@ -1867,6 +2040,18 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         for (let input of reorderedInputs) {
             let fieldExpr;
             function computeDerivativeLength(d, f) {
+                // Analytical
+                // Well, Finite differences with picking minimum looks better than analytical...
+                //if (input.dependsOnX) {
+                //    return `
+                //        float ${d}; {
+                //            ${d} = length(vec2(eval_ddx_${input.name}(_uv)*dFdx(_uv.x), dFdy(_uv.y)));
+                //            ${d} = max(${d}, 1e-10);
+                //        }
+                //    `;
+                //}
+
+                // Finite differences
                 return `
                     float ${d}; {
                         vec2 _uvd, _rmd, _rpd;
@@ -1892,6 +2077,13 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         return mix(${input.processedExpr}, 1e30, step(x, ${input.rangeMin.toFixed(10)}) + step(${input.rangeMax.toFixed(10)}, x));
                     }
                 `.replace(/\s+/g, " ") + "\n";
+                //graphDefinitions += `
+                //    float eval_ddx_${input.name}(vec2 p) {
+                //        float x = p.x;
+                //        float y = p.y;
+                //        return mix(${input.processedDdxExpr}, 1e30, step(x, ${input.rangeMin.toFixed(10)}) + step(${input.rangeMax.toFixed(10)}, x));
+                //    }
+                //`.replace(/\s+/g, " ") + "\n";
 
                 let isZ = false;
                 if (input.dependsOnX && input.dependsOnY) {
@@ -2277,7 +2469,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     }
                 }
                 if (foundInput) {
-                    foundInput.message.value += report.message;
+                    foundInput.message.innerText += report.message;
 
                     const m = [...report.message.matchAll(/'(.*?)' : undeclared identifier/g)];
                     if (m.length) {
@@ -2303,12 +2495,16 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         }
 
         const vertexShader = compileShader(vertexShaderSource, gl.VERTEX_SHADER);
-        if (!vertexShader)
+        if (!vertexShader) {
+            console.log("Stopping due to failure to compile vertex shader");
             return null;
+        }
 
         const fragmentShader = compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER);
-        if (!fragmentShader)
+        if (!fragmentShader) {
+            console.log("Stopping due to failure to compile fragment shader");
             return null;
+        }
         
         let newProgram = gl.createProgram();
         gl.attachShader(newProgram, vertexShader);
@@ -2329,6 +2525,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         //       #pragma optimize(off) in fragment shader doesn't make a difference.
         if (!gl.getProgramParameter(newProgram, gl.LINK_STATUS)) {
             reportErrors(gl.getProgramInfoLog(newProgram));
+            console.log("Stopping due to failure to link program");
             return null;
         }
 
@@ -2477,6 +2674,9 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         });
     }
 
+    // Quartic log2: https://twixuss.github.io/gralc/index.html?cx=0.5&cy=0.5&cz=1&i0t=none&i0e=%2F%2F%20Quartic%20log2%20approximation&i2t=graph&i2c=%234f4f&i2e=f1%3Dlog2(x%2B1)%20%5B0%2C%201%5D%20%2F%2F%20Built-in&i3t=graph&i3c=%2348ff&i3e=f2%3Dbezier4(p0%2Cp1%2Cp2%2Cp3%2Cp4%2Cx)%20%5B0%2C%201%5D%20%2F%2F%20Approximation&i4t=graph&i4c=%23f44f&i4e=abs(f1-f2)*1000%20%5B0%2C%201%5D%20%2F%2F%20Error&i5t=graph&i5c=%238880&i5e=p0%20%3D%20%2B0&i6t=graph&i6c=%238880&i6e=p1%20%3D%201%2Flog(2)%2F4&i7t=slider&i7a=0.6061&i7b=0.6062&i7e=p2%20%3D%200.6061252%20&i8t=graph&i8c=%238880&i8e=p3%20%3D%201-1%2Flog(2)%2F2%2F4&i9t=graph&i9c=%238880&i9e=p4%3D%2B1&i11t=function&i11c=%2344ff&i11e=bezier4(a%2Cb%2Cc%2Cd%2CE%2Ct)%3Dlerp(bezier3(a%2Cb%2Cc%2Cd%2Ct)%2C%20bezier3(b%2Cc%2Cd%2CE%2Ct)%2C%20t)&i12t=function&i12c=%238f4f&i12e=bezier3(a%2Cb%2Cc%2Cd%2Ct)%3Dlerp(bezier2(a%2Cb%2Cc%2Ct)%2C%20bezier2(b%2Cc%2Cd%2Ct)%2C%20t)&i13t=function&i13c=%23f4ff&i13e=bezier2(a%2Cb%2Cc%2Ct)%3Dlerp(lerp(a%2Cb%2Ct)%2Clerp(b%2Cc%2Ct)%2C%20t)&
+    //   Cubic log2: https://twixuss.github.io/gralc/index.html?cx=0.5&cy=0.5&cz=1&i0t=none&i0e=%2F%2F%20Cubic%20log2%20approximation&i2t=graph&i2c=%234f4f&i2e=f1%3Dlog2(x%2B1)%20%5B0%2C%201%5D%20%2F%2F%20Builtin&i3t=graph&i3c=%2348ff&i3e=f2%3Dbezier3(p0%2Cp1%2Cp2%2Cp3%2Cx)%20%5B0%2C%201%5D%20%2F%2F%20Approximation&i4t=graph&i4c=%23f44f&i4e=abs(f1-f2)*100%20%5B0%2C%201%5D%20%2F%2F%20Error&i5t=graph&i5c=%238880&i5e=p0%20%3D%20%2B0&i6t=graph&i6c=%238880&i6e=p1%20%3D%201%2Flog(2)%2F3&i7t=graph&i7c=%238880&i7e=p2%20%3D%201-1%2Flog(2)%2F2%2F3&i8t=graph&i8c=%238880&i8e=p3%20%3D%20%2B1&i10t=function&i10c=%238f4f&i10e=bezier3(a%2Cb%2Cc%2Cd%2Ct)%3Dlerp(bezier2(a%2Cb%2Cc%2Ct)%2C%20bezier2(b%2Cc%2Cd%2Ct)%2C%20t)&i11t=function&i11c=%23f4ff&i11e=bezier2(a%2Cb%2Cc%2Ct)%3Dlerp(lerp(a%2Cb%2Ct)%2Clerp(b%2Cc%2Ct)%2C%20t)&
+    //   Cubic exp2: https://twixuss.github.io/gralc/index.html?cx=0.5&cy=0.5&cz=1&i0t=none&i0e=%2F%2F%20Cubic%20exp2%20approximation&i2t=graph&i2c=%234f4f&i2e=f1%3Dexp2(x)-1%20%5B0%2C%201%5D%20%2F%2F%20Builtin&i3t=graph&i3c=%2348ff&i3e=f2%3Dbezier3(p0%2Cp1%2Cp2%2Cp3%2Cx)%20%5B0%2C%201%5D%20%2F%2F%20Approximation&i4t=graph&i4c=%23f44f&i4e=abs(f1-f2)*1000%20%5B0%2C%201%5D%20%2F%2F%20Error&i5t=graph&i5c=%238880&i5e=p0%20%3D%20%2B0&i6t=graph&i6c=%238880&i6e=p1%20%3D%20log(2)%2F3&i7t=graph&i7c=%238880&i7e=p2%20%3D%201-log(2)*2%2F3&i8t=graph&i8c=%238880&i8e=p3%20%3D%20%2B1&i10t=function&i10c=%238f4f&i10e=bezier3(a%2Cb%2Cc%2Cd%2Ct)%3Dlerp(bezier2(a%2Cb%2Cc%2Ct)%2C%20bezier2(b%2Cc%2Cd%2Ct)%2C%20t)&i11t=function&i11c=%23f4ff&i11e=bezier2(a%2Cb%2Cc%2Ct)%3Dlerp(lerp(a%2Cb%2Ct)%2Clerp(b%2Cc%2Ct)%2C%20t)&
     setupExample(example1Button, "cy=2&cz=4&i0t=slider&i0e=t%20%3D%202%20&i0a=0&i0b=2&i1t=graph&i1c=%23f44f&i1e=y%20<%20pow(t%2C%20x)&i3t=slider&i3e=a%20%3D%202&i4t=function&i4e=f(x)%20%3D%20sin(x*a%20%2B%20iTime)&i5t=graph&i5c=%23ff4f&i5e=f(x%2B1)-2%20%3D%20y&i7t=graph&i7c=%2348ff&i7e=x%2By*2%3D2&");
     setupExample(example2Button, "i0t=graph&i0c=%23f44f&i0e=a%20%3D%20length(p)-iTime*0.1&i1t=graph&i1c=%234f4f&i1o=0.65&i1e=b%20%3D%20atan2(p)%2Ftau*8%2BiTime*0.1&i2t=graph&i2c=%2344ff&i2e=b-sin(a)&i3t=graph&i3c=%23000f&i3l=clamp&i3e=length(p)-iTime*0.5&");
     setupExample(resetStateButton, "");
@@ -2526,6 +2726,8 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 gl.drawArrays(gl.TRIANGLES, 0, 3);
             }
 
+            ctx.clearRect(0, 0, 99999, 99999);
+
             storageWriteTimer += frameTime;
             if (storageWriteTimer >= 0 && program) {
                 storageWriteTimer -= 1;
@@ -2574,15 +2776,15 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 let stepY = pow(gridDivisions, logZoomY);
                 let stepX = pow(gridDivisions, logZoomX);
                 let [xmin, ymin] = canvasToGraphNoLog(0, 0);
-                let [xmax, ymax] = canvasToGraphNoLog(canvas.width, canvas.height);
+                let [xmax, ymax] = canvasToGraphNoLog(canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
                 [ymin, ymax] = [ymax, ymin];
 
-                function renderRuler(x, isLog, delta, logZoom) {
-                    if (rulerForm != 'decimal') {
+                const renderRuler = {
+                    'decimal': (x, isLog, delta, logZoom) => {
+                        return floatToStringDelta(x, delta);
+                    },
+                    'rational': (x, isLog, delta, logZoom) => {
                         let p = isLog ? Math.max(1.0, pow(gridDivisions, Math.max(-1-logZoom,0)-floor(logBase(gridDivisions, x)))) : pow(gridDivisions, -logZoom);
-
-                        if (p == Infinity)
-                        debugBreak();
 
                         if (p <= 1) {
                             // zoomed out so only integers are displayed
@@ -2594,11 +2796,31 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                             if (numer == 0) {
                                 return "0";
                             } else {
-                                if (rulerForm == 'rational-gcd') {
-                                    let d = gcd(numer, denom);
-                                    numer = round(numer / d);
-                                    denom = round(denom / d);
+                                let int = floor(numer / denom);
+                                if (int * denom == numer) {
+                                    return int;
+                                } else {
+                                    return `${numer}/${denom}`;
                                 }
+                            }
+                        }
+                    },
+                    'rational-gcd': (x, isLog, delta, logZoom) => {
+                        let p = isLog ? Math.max(1.0, pow(gridDivisions, Math.max(-1-logZoom,0)-floor(logBase(gridDivisions, x)))) : pow(gridDivisions, -logZoom);
+
+                        if (p <= 1) {
+                            // zoomed out so only integers are displayed
+                            return round(x);
+                        } else {
+                            let numer = round(x*p);
+                            let denom = round(  p);
+
+                            if (numer == 0) {
+                                return "0";
+                            } else {
+                                let d = gcd(numer, denom);
+                                numer = round(numer / d);
+                                denom = round(denom / d);
 
                                 let int = floor(numer / denom);
                                 if (int * denom == numer) {
@@ -2608,20 +2830,14 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                                 }
                             }
                         }
-                    }
-
-                    let nx = x - delta;
-                    return floatToStringDelta(x, nx - x);
-                }
+                    },
+                }[rulerForm];
 
                 let rulerTextIndex = 0;
                 function iterateRulers(min, max, step, isLog, logZoom, callback) {
                     if (isLog) {
                         if (logZoom < 0) {
                             // Log zoomed in
-                            debugLabel.innerHTML = `
-                            // Log zoomed in
-                            `;
                             let s = pow(gridDivisions, logZoom);
                             
                             let o = logZoom + 1;
@@ -2637,14 +2853,11 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                                 //x += step;
                                 x = round((x + step) / step) * step
     
-                                if (floor(log10(x)) != floor(log10(oldX)))
-                                    step *= 10;
+                                if (floor(logBase(gridDivisions, x)) != floor(logBase(gridDivisions, oldX)))
+                                    step *= gridDivisions;
                             }
                         } else {
                             // Log zoomed out
-                            debugLabel.innerHTML = `
-                            // Log zoomed out
-                            `;
                             min = floor(min/step)*step;
                             max =  ceil(max/step)*step;
                             let xn = (max - min) / step;
@@ -2658,9 +2871,6 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         }
                     } else {
                         // Linear
-                            debugLabel.innerHTML = `
-                        // Linear
-                            `;
                         min = floor(min/step)*step;
                         max =  ceil(max/step)*step;
                         let xn = (max - min) / step;
@@ -2673,48 +2883,37 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                     }
                 }
 
+                ctx.font = `${16 * window.devicePixelRatio}px Arial`;
+                ctx.fillStyle = theme.globalForeground;
+
                 iterateRulers(xmin, xmax, stepX, xLogCheckbox.checked, logZoomX, (x, stepX) => {
                     if (x === Infinity || (xLogCheckbox.checked && x < 1e-300)) return;
-                    if (rulerTextIndex >= rulerTexts.length) return true;
-                    let rulerText = rulerTexts[rulerTextIndex++];
                     
                     if (Math.abs(x) < stepX*1e-3) x = 0; // Avoid "-0"
                     
-                    rulerText.innerHTML = renderRuler(x, xLogCheckbox.checked, stepX, logZoomX); // Linear
-                    let rect = rulerText.getBoundingClientRect();
-
-                    let left = graphToCanvas(x, 0)[0] - rect.width * 0.5; // Log Zoomed In
+                    let text = renderRuler(x, xLogCheckbox.checked, stepX, logZoomX);
+                    
+                    let left = graphToCanvas(x, 0)[0];
 
                     let top = y0;
                     if (Math.abs(xLogCheckbox.checked ? x - 1 : x) < stepX*1e-3)
                         top += 8; // Make sure x and y labels at 0,0 don't overlap
-
-                    rulerText.style.left = `${left}px`;
-                    rulerText.style.top = `${clamp(top, 0, canvas.height - rect.height)}px`;
+                    
+                    drawText(text, left, top, {alignX: -0.5, alignY: 1.0, clampTop: 0, clampBottom: canvas.height});
                 });
 
                 iterateRulers(ymin, ymax, stepY, yLogCheckbox.checked, logZoomY, (y, stepY) => {
                     if (y === Infinity || (yLogCheckbox.checked && y < 1e-300)) return;
-                    if (rulerTextIndex >= rulerTexts.length) return true;
-                    let rulerText = rulerTexts[rulerTextIndex++];
 
                     if (Math.abs(y) < stepY*1e-3) y = 0; // Avoid "-0"
                     
-                    rulerText.innerHTML = renderRuler(y, yLogCheckbox.checked, stepY, logZoomY);
-                    let rect = rulerText.getBoundingClientRect();
+                    let text = renderRuler(y, yLogCheckbox.checked, stepY, logZoomY);
 
-                    let left = x0 - rect.width;
+                    let left = x0;
+                    let top = graphToCanvas(0, y)[1];
                     
-                    let top = graphToCanvas(0, y)[1] - rect.height * 0.5;
-
-                    rulerText.style.left = `${clamp(left, 0, canvas.width - rect.width)}px`;
-                    rulerText.style.top = `${top}px`;
+                    drawText(text, left, top, {alignX: -1.0, alignY: 0.5, clampLeft: 0, clampRight: canvas.width});
                 });
-
-                for (let i = rulerTextIndex; i < rulerTexts.length; ++i) {
-                    let rulerText = rulerTexts[i];
-                    rulerText.style.top = `-1000px`;
-                }
             }
 
             {
@@ -2733,30 +2932,51 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 `;
 
                 if (cursorCoordsOnAxisCheckbox.checked) {
-                    cursorXRulerText.innerText = mouseGraphX;
-                    cursorYRulerText.innerText = mouseGraphY;
-    
-                    {
-                        let rect = cursorXRulerText.getBoundingClientRect();
-                        cursorXRulerText.style.left = `${mouseX - canvasRect.left}px`;
-                        cursorXRulerText.style.top = `${clamp(y0, 0, canvas.height - rect.height)}px`;
-                    }
-                    {
-                        let rect = cursorYRulerText.getBoundingClientRect();
-                        cursorYRulerText.style.left = `${clamp(x0, 0, canvas.width - rect.width)}px`;
-                        cursorYRulerText.style.top = `${mouseY - canvasRect.top}px`;
-                    }
+                    drawText(mouseGraphX, mouseX - canvasRect.left, y0, {clampTop: 16, clampBottom: canvas.height - 16});
+                    drawText(mouseGraphY, x0, mouseY - canvasRect.top, {clampLeft: 16, clampRight: canvas.width - 16});
                 }
             }
             
-            canvas.hidden = false;
-
             requestAnimationFrame(animate);
         }
         
         animate();
     })();
 
+    // Returns size of text in logical pixels
+    function measureText(text) {
+        let size = ctx.measureText(text);
+        return {
+            width: size.width / window.devicePixelRatio,
+            height: (size.actualBoundingBoxAscent + size.actualBoundingBoxDescent) / window.devicePixelRatio,
+        };
+    }
+    // left and top are in logical pixels
+    function drawText(text, x, y, options) {
+        let size = measureText(text);
+
+        let left = x;
+        let bottom = y;
+
+        if (options?.alignX !== undefined) left   += size.width  * options.alignX;
+        if (options?.alignY !== undefined) bottom += size.height * options.alignY;
+
+        left *= window.devicePixelRatio;
+        bottom *= window.devicePixelRatio;
+        size.width *= window.devicePixelRatio;
+        size.height*= window.devicePixelRatio;
+        
+        if (options?.clampLeft   !== undefined) left   = Math.max(left,   options.clampLeft);
+        if (options?.clampRight  !== undefined) left   = Math.min(left,   options.clampRight - size.width);
+        if (options?.clampTop    !== undefined) bottom = Math.max(bottom, options.clampTop + size.height);
+        if (options?.clampBottom !== undefined) bottom = Math.min(bottom, options.clampBottom);
+        if (options?.dontRound === undefined) {
+            left   = round(left  );
+            bottom = round(bottom);
+        }
+
+        ctx.fillText(text, left, bottom);
+    }
     function canvasToGraphNoLog(x, y) {
         let zoomY = exp2(cameraZ);
 
@@ -2992,22 +3212,20 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
             left, operation, right,
         }
     }
-    function callCreate() {
+    function callCreate(callable, args) {
+        if (args === undefined) args = [];
         return {
             kind: 'call',
             location: nullLocation,
-            arguments: [],
+            callable,
+            arguments: args,
         }
     }
-    function tokensToAst(tokens) {
-        function reportError(location, message) {
-            console.log(`${location.begin}: ${message}`);
-        }
-
+    function tokensToAst(tokens, source) {
         const nullToken = {
-            kind: 'null',
+            kind: '<end of text>',
             location: nullLocation,
-            string: '',
+            string: '<end of text>',
         }
         let token = tokens[0] || nullToken;
         let current = 0;
@@ -3115,8 +3333,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         return unop;
                     }
 
-                    reportError(token.location, `Unexpected token ${token.kind} when parsing expression.`);
-                    throw 'fail';
+                    throw `Unexpected token ${token.kind} when parsing expression.`;
                 }
             }
 
@@ -3135,8 +3352,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                         next();
                         binary.right = parseExpression0();
                         if (binary.right.kind != 'ident') {
-                            reportError(binary.right.location, "Only identifiers can follow a dot.");
-                            throw 'fail';
+                            throw "Only identifiers can follow a dot.";
                         }
                         binary.location = {begin: binary.left.location.begin, end: binary.right.location.end};
                         expression = binary;
@@ -3165,8 +3381,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                                     break;
                                 }
 
-                                reportError(token.string, "Unexpected token `{}` when parsing call argument list. Expected `,` or `)`.", token.string);
-                                throw 'fail';
+                                throw `Unexpected token '${token.string}' when parsing call argument list. Expected ',' or ')'.`;
                             }
                         }
 
@@ -3201,6 +3416,31 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 binop.right = parseExpression(getPrecedence(operation) - isRightAssociative(operation));
                 binop.location = { begin: binop.left.location.begin, end: binop.right.location.end };
                 left = binop;
+
+                if (binop.left.kind == 'ident' && binop.left.name == 'd' && binop.operation == '/') {
+                    let dxOrDy = undefined;
+                    let inner = undefined;
+                    if (binop.right.kind == 'ident' && (binop.right.name == 'dx' || binop.right.name == 'dy')) {
+                        inner = parseExpression1();
+                        dxOrDy = binop.right.name;
+                    } else if (binop.right.kind == 'call' && binop.right.callable.kind == 'ident' && (binop.right.callable.name == 'dx' || binop.right.callable.name == 'dy')) {
+                        if (binop.right.arguments.length != 1) {
+                            throw 'expected an expression in derivative';
+                        }
+                        inner = binop.right.arguments[0];
+                        dxOrDy = binop.right.callable.name;
+                    }
+
+                    if (inner !== undefined) {
+                        if (false) {
+                            // screen space derivative. low quality.
+                            let ddxOrDdy = `d${dxOrDy}`;
+                            left = binaryCreate(callCreate(identCreate(ddxOrDdy), [inner]), '/', callCreate(identCreate(ddxOrDdy), [identCreate(dxOrDy[1])]));
+                        } else {
+                            left = callCreate(identCreate(`__derivative_${dxOrDy}`), [inner]);
+                        }
+                    }
+                }
             }
 
             return left;
@@ -3220,24 +3460,21 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
                 next();
             }
             if (current != tokens.length) {
-                console.log("Unparsed tokens remaining: ", tokens.length - current);
+                result.message = `Unparsed tokens remaining: ${source.substring(tokens[current].location.begin)}`;
                 return result;
             }
             result.valid = true;
             return result;
         }
-        catch (thrown) {
-            if (thrown != 'fail') {
-                console.log("Unexpected thrown value:", thrown);
-            }
-            return {valid: false};
+        catch (message) {
+            return {valid: false, message};
         }
     }
     function astToString(ast) {
         switch (ast.kind) {
             case 'none': return '';
             case 'ident': return ast.name;
-            case 'literal': return ast.string;
+            case 'literal': return ast.value;
             case 'unary': return `${ast.operation}(${astToString(ast.expression)})`;
             case 'binary': return `(${astToString(ast.left)} ${ast.operation} ${astToString(ast.right)})`;
             case 'call':
@@ -3269,29 +3506,161 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
         }
         assert(false, `unhandled ast kind: ${ast.kind}`);
     }
-    function visit(ast, callback) {
-        callback(ast);
+    
+    function visit(ast, order, callback) {
+        let result, r;
+        if (order !== 'post')
+            result = callback(ast);
+
         switch (ast.kind) {
             case 'none':
             case 'ident':
             case 'literal':
                 break;
             case 'unary':
-                visit(ast.expression, callback);
+                r = visit(ast.expression, order, callback);
+                if (r !== undefined) {
+                    if (r.action == 'substitute') {
+                        ast.expression = r.node;
+                    }
+                }
                 break;
             case 'binary':
-                visit(ast.left, callback);
-                visit(ast.right, callback);
+                r = visit(ast.left, order, callback);
+                if (r !== undefined) {
+                    if (r.action == 'substitute') {
+                        ast.left = r.node;
+                    }
+                }
+
+                r = visit(ast.right, order, callback);
+                if (r !== undefined) {
+                    if (r.action == 'substitute') {
+                        ast.right = r.node;
+                    }
+                }
                 break;
             case 'call':
-                visit(ast.callable, callback);
-                for (let arg of ast.arguments) {
-                    visit(arg, callback);
+                r = visit(ast.callable, order, callback);
+                if (r !== undefined) {
+                    if (r.action == 'substitute') {
+                        ast.callable = r.node;
+                    }
+                }
+                for (let i = 0; i < ast.arguments.length; ++i) {
+                    r = visit(ast.arguments[i], order, callback);
+                    if (r !== undefined) {
+                        if (r.action == 'substitute') {
+                            ast.arguments[i] = r.node;
+                        }
+                    }
                 }
                 break;
             default:
                 assert(false, `unhandled ast kind: ${ast.kind}`);
                 break;
+        }
+        if (order === 'post')
+            result = callback(ast);
+        return result;
+    }
+    function derivativeOf(context, expr) {
+        if (context.derivativeName === undefined)
+            context.derivativeName = '__derivative';
+
+        return derivativeOf(context, expr);
+
+        function derivativeOf(context, expr) {
+            switch (expr.kind) {
+                case 'ident': {
+                    let r = context.derivativeOf(expr);
+                    if (r !== undefined)
+                        return r;
+                    break;
+                }
+                case 'literal': {
+                    return literalCreate(0);
+                }
+                case 'unary': {
+                    return unaryCreate(expr.operation, derivativeOf(context, expr.expression));
+                }
+                case 'binary': {
+                    switch (expr.operation) {
+                        case '+':
+                        case '-':
+                            return binaryCreate(
+                                derivativeOf(context, expr.left),
+                                expr.operation,
+                                derivativeOf(context, expr.right)
+                            );
+                        case '*':
+                            return binaryCreate(binaryCreate(derivativeOf(context, expr.left), '*', expr.right), '+', binaryCreate(expr.left, '*', derivativeOf(context, expr.right)));
+                        case '/':
+                            return binaryCreate(binaryCreate(binaryCreate(derivativeOf(context, expr.left), '*', expr.right), '-', binaryCreate(expr.left, '*', derivativeOf(context, expr.right))), '/', callCreate(identCreate('pow'), [expr.right, literalCreate(2)]));
+                        case '.':
+                            return context.derivativeOf(expr);
+                    }
+                    break;
+                }
+                case 'call': {
+                    function expectArgumentCount(count) {
+                        if (expr.arguments.length != count) {
+                            throw `${expr.callable.name} accepts ${count} arguments, not ${expr.arguments.length}`;
+                        }
+                    }
+                    switch (expr.callable.name) {
+                        case context.derivativeName:
+                            break;
+                        case 'pow': {
+                            // d/dx pow(f(x), n) = n * pow(f(x), n - 1) * f'(x)
+                            
+                            expectArgumentCount(2);
+
+                            if (expr.arguments[1].kind == 'literal') {
+                                return binaryCreate(binaryCreate(expr.arguments[1], '*', callCreate(identCreate('pow'), [expr.arguments[0], literalCreate(expr.arguments[1].value - 1)])), '*', derivativeOf(context, expr.arguments[0]));
+                            }
+
+                            break;
+                        }
+                        case 'sin': {
+                            expectArgumentCount(1);
+                            return binaryCreate(callCreate(identCreate('cos'), [expr.arguments[0]]), '*', derivativeOf(context, expr.arguments[0]));
+                        }
+                        case 'cos': {
+                            expectArgumentCount(1);
+                            return binaryCreate(unaryCreate('-', callCreate(identCreate('sin'), [expr.arguments[0]])), '*', derivativeOf(context, expr.arguments[0]));
+                        }
+                        case 'dot': {
+                            // dot(a, b) = ax*bx + ay*by
+                            // d/dx = dax*bx + ax*dbx + ay*dby + day*by
+                            //      = dax*bx + day*by + ax*dbx + ay*dby
+                            //      = dot(da, b) + dot(a, db)
+                            expectArgumentCount(2);
+                            return binaryCreate(
+                                callCreate(identCreate('dot'), [derivativeOf(context, expr.arguments[0]), expr.arguments[1]]),
+                                '+',
+                                callCreate(identCreate('dot'), [expr.arguments[0], derivativeOf(context, expr.arguments[1])]),
+                            );
+                        }
+                        case 'frac': {
+                            expectArgumentCount(1);
+                            return derivativeOf(context, expr.arguments[0]);
+                        }
+                        case 'floor':
+                        case 'ceil': {
+                            expectArgumentCount(1);
+                            return literalCreate(0);
+                        }
+                        default:
+                            // d/dx f(g(x)) = f'(g(x)) * g'(x)
+            
+                            expectArgumentCount(1);
+                            return binaryCreate(callCreate(identCreate(context.derivativeName), [expr]), '*', derivativeOf(context, expr.arguments[0]));
+                    }
+                    break;
+                }
+            }
+            return callCreate(identCreate(context.derivativeName), [expr]);
         }
     }
 
@@ -3333,7 +3702,7 @@ You can report stuff here: <a href="https://github.com/twixuss/twixuss.github.io
     }
     function assert(cond, message) {
         if (enableAsserts && !cond) {
-            if (!message) message = '';
+            if (message === undefined) message = '';
             throw new Error(`Assertion failed: ${message}`);
         }
     }

@@ -213,10 +213,56 @@ dy=0</textarea>
             }
             case 'call': {
                 switch (expr.callable.name) {
+                    case 'derivative':
+                        break;
                     case 'pow': {
+                        // d/dx pow(f(x), n) = n * pow(f(x), n - 1) * f'(x)
                         
+                        if (expr.arguments.length != 2) {
+                            throw `${expr.callable.name} accepts 2 arguments, not ${expr.arguments.length}`;
+                        }
+
+                        if (expr.arguments[1].kind == 'literal') {
+                            return binaryCreate(binaryCreate(expr.arguments[1], '*', callCreate(identCreate('pow'), [expr.arguments[0], literalCreate(expr.arguments[1].value - 1)])), '*', derivativeOf(expr.arguments[0]));
+                        }
+
                         break;
                     }
+                    case 'sin': {
+                        if (expr.arguments.length != 1) {
+                            throw `${expr.callable.name} accepts 1 argument, not ${expr.arguments.name}`;
+                        }
+                        return binaryCreate(callCreate(identCreate('cos'), [expr.arguments[0]]), '*', derivativeOf(expr.arguments[0]));
+                    }
+                    case 'cos': {
+                        if (expr.arguments.length != 1) {
+                            throw `${expr.callable.name} accepts 1 argument, not ${expr.arguments.name}`;
+                        }
+                        return binaryCreate(unaryCreate('-', callCreate(identCreate('sin'), [expr.arguments[0]])), '*', derivativeOf(expr.arguments[0]));
+                    }
+                    case 'dot': {
+                        // dot(a, b) = ax*bx + ay*by
+                        // d/dx = dax*bx + ax*dbx + ay*dby + day*by
+                        //      = dax*bx + day*by + ax*dbx + ay*dby
+                        //      = dot(da, b) + dot(a, db)
+                        if (expr.arguments.length != 2) {
+                            throw `${expr.callable.name} accepts 1 argument, not ${expr.arguments.name}`;
+                        }
+                        return binaryCreate(
+                            callCreate(identCreate('dot'), [derivativeOf(expr.arguments[0]), expr.arguments[1]]),
+                            '+',
+                            callCreate(identCreate('dot'), [expr.arguments[0], derivativeOf(expr.arguments[1])]),
+                        );
+                    }
+                    default:
+                        // d/dx f(g(x)) = f'(g(x)) * g'(x)
+        
+                        if (expr.arguments.length != 1) {
+                            throw `Expected 1 argument for a user-defined function ${expr.callable.name}`;
+                        }
+        
+                        console.log(expr.callable.name);
+                        return binaryCreate(callCreate(identCreate('derivative'), [expr]), '*', derivativeOf(expr.arguments[0]));
                 }
                 break;
             }
@@ -628,6 +674,7 @@ dy=0</textarea>
             case 'unary':
                 return false;
             case 'binary':
+                //return true;
                 if (binary.operation == '-' && inner === binary.right) return true;
                 let innerPrecedence = getPrecedence(inner.operation);
                 return innerPrecedence < outerPrecedence;

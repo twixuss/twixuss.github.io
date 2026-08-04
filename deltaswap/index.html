@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Delta Swap</title>
+</head>
+<style>
+* {
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    font-family: Arial;
+    font-size: 14px;
+    background-color: #333;
+    color: #fff;
+}
+input[type="text"], textarea {
+    border: 1px solid #222;
+    outline: none;
+}
+body {
+    height: 100%;
+}
+canvas {
+    border: 1px solid black;
+}
+.inputLine {
+    padding: 4px;
+}
+.inputLine > * + * {
+    margin-left: 8px;
+}
+#container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: row;
+}
+#leftHalf {
+    max-width: 500px;
+}
+#outIndicesField {
+    width: calc(100% - 8px);
+    margin: 4px;
+    height: 50%;
+    padding: 4px;
+}
+</style>
+<body id="body">
+    <div id="container">
+        <div id="leftHalf">
+            <textarea id="outIndicesField" style="resize: none;"></textarea>
+        </div>
+        <div id="rightHalf">
+            <canvas id="canvas" width="1430" height="950"></canvas>
+        </div>
+    </div>
+</body>
+<script>
+'use strict';
+(async () => {
+
+    let inputs = [];
+
+    for (let i = 0; i < 8; ++i) {
+        let div = document.createElement('div');
+        div.className = 'inputLine';
+        
+        let maskLabel = document.createElement('span');
+        maskLabel.innerText = "Mask " + i + ": ";
+        div.appendChild(maskLabel);
+
+        let maskInput = document.createElement('input');
+        maskInput.type = 'text';
+        div.appendChild(maskInput);
+
+        let shiftLabel = document.createElement('span');
+        shiftLabel.innerText = "Shift " + i + ": ";
+        div.appendChild(shiftLabel);
+
+        let shiftInput = document.createElement('input');
+        shiftInput.type = 'text';
+        div.appendChild(shiftInput);
+
+        let errorLabel = document.createElement('span');
+        errorLabel.hidden = true;
+        errorLabel.style.color = '#f44';
+        div.appendChild(errorLabel);
+
+        leftHalf.insertBefore(div, outIndicesField);
+
+        inputs.push({mask: maskInput, shift: shiftInput, errorLabel});
+    }
+
+    inputs[0].mask.value = '0000000000000000ffff0000ffff0000'; inputs[0].shift.value = '48';
+    inputs[1].mask.value = '00000000ff00ff0000000000ff00ff00'; inputs[1].shift.value = '24';
+    inputs[2].mask.value = '0000f0f00000f0f00000f0f00000f0f0'; inputs[2].shift.value = '12';
+    inputs[3].mask.value = '00cc00cc00cc00cc00cc00cc00cc00cc'; inputs[3].shift.value = '6';
+
+    let ctx = canvas.getContext('2d');
+
+    function intToHexChar(i) {
+        if (i < 10) return 48 + i;
+        return 65 - 10 + i;
+    }
+    function hexCharToInt(c) {
+        if (c <= 57) return c - 48;
+        if (c <= 70) return c - 65 + 10;
+        return c - 97 + 10;
+    }
+    function hsvToHex(h, s, v) {
+        h *= 360;
+        const k = (n) => (n + h / 60) % 6;
+        const f = (n) => v * (1 - s * Math.max(0, Math.min(k(n), 4 - k(n), 1)));
+
+        const r = Math.round(255 * f(5));
+        const g = Math.round(255 * f(3));
+        const b = Math.round(255 * f(1));
+
+        return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    }
+    function dbg() { try { throw 1; } catch {} }
+    function update() {
+        let values = [];
+        for (let i = 0; i < 128; ++i) {
+            values.push({
+                index: i,
+                color: hsvToHex(i/127, 0.75, 1),
+            });
+        }
+        let originalValues = structuredClone(values);
+
+        ctx.fillStyle = '#222';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        let pad = 10;
+        let xstep = 11;
+        let ystep = 88;
+
+        let roundIndex = 0;
+        let y = 10;
+        for (let roundIndex = 0; roundIndex < inputs.length; ++roundIndex) {
+            let round = inputs[roundIndex];
+            round.errorLabel.hidden = true;
+            let shift = +round.shift.value;
+            if (isNaN(shift)) {
+                round.errorLabel.innerText = `Shift must be a number`;
+                round.errorLabel.hidden = false;
+                return;
+            }
+
+            let oldValues;
+            let iota = [];
+            for (let i = 0; i < 128; ++i)
+                iota.push(i);
+
+            if (shift) {
+                let mask = [];
+                for (let i = 0; i < round.mask.value.length; ++i) {
+                    let n = hexCharToInt(round.mask.value.charCodeAt(round.mask.value.length-i-1));
+                    if (n >= 16) {
+                        round.errorLabel.innerText = `Invalid Character ${round.mask.value[round.mask.value.length-i-1]} In Mask`;
+                        round.errorLabel.hidden = false;
+                        return;
+                    }
+                    for (let i = 0; i < 4; ++i) {
+                        mask.push((n >> i) & 1);
+                    }
+                }
+                for (let i = round.mask.value.length; i < 128; ++i) {
+                    mask.push(0);
+                }
+                
+                oldValues = structuredClone(values);
+
+                for (let i = 0; i < 128; ++i) {
+                    if (mask[i] != 0) {
+                        if (mask[i + shift] != 0) {
+                            round.errorLabel.innerText = `Mask and Shifted Mask intersect, which is not allowed`;
+                            round.errorLabel.hidden = false;
+                            return;
+                        }
+                        if (i + shift >= 128) {
+                            round.errorLabel.innerText = `Index overflow`;
+                            round.errorLabel.hidden = false;
+                            return;
+                        }
+                        let tmp = values[i];
+                        values[i] = values[i + shift];
+                        values[i + shift] = tmp;
+
+                        tmp = iota[i];
+                        iota[i] = iota[i + shift];
+                        iota[i + shift] = tmp;
+                    }
+                }
+            } else {
+                oldValues = values;
+            }
+
+            let ny = y + ystep;
+
+            for (let i = 0; i < 128; ++i) {
+                ctx.beginPath();
+                ctx.moveTo(pad + xstep*(127-iota[i]) + 0.5, y);
+                ctx.lineTo(pad + xstep*(127-i) + 0.5, ny);
+                ctx.strokeStyle = values[i].color;
+                ctx.stroke();
+            }
+
+            y = ny;
+        }
+
+
+        y += 50;
+        let ny = y + ystep*2;
+        for (let i = 0; i < 128; ++i) {
+            ctx.beginPath();
+            ctx.moveTo(pad + xstep*(127- values[i].index) + 0.5, y);
+            ctx.lineTo(pad + xstep*(127- i) + 0.5, ny);
+            ctx.strokeStyle = values[i].color;
+            ctx.stroke();
+        }
+
+
+        outIndicesField.value = values.map(v => v.index);
+
+        //ctx.fillStyle = 'black';
+        //ctx.font = `10px Arial`;
+        //ctx.fillText(values.map(v => v.index), 10, 830);
+
+        //result.innerText = input_values.join(' ');
+
+        //let ceiled_size = Math.pow(2, Math.ceil(Math.log2(input_values.length)));
+//
+        //for (let i = 0; i < ceiled_size - input_values.length; ++i) {
+        //    input_values.push(".");
+        //}
+    }
+
+    update();
+    for (let input of inputs) {
+        for (let element of [input.mask, input.shift]) {
+            element.addEventListener('input', e => {
+                update();
+            });
+        }
+    }
+})();
+</script>
+</html>
